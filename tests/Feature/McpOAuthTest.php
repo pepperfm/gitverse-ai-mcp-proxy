@@ -12,14 +12,13 @@ uses(RefreshDatabase::class);
 beforeEach(function (): void {
     Config::set('app.url', 'https://proxy.example.test');
     Config::set('gitverse.endpoint', 'https://mcp.gitverse.ru');
-    Config::set('gitverse.allowed_token_sha256', hash('sha256', 'valid-personal-gitverse-token'));
 });
 
-function registerChatGptClient($testCase): string
+function registerRemoteClient($testCase, string $callback = 'https://chatgpt.com/connector_platform_oauth_redirect', string $name = 'ChatGPT'): string
 {
     return $testCase->postJson('/oauth/register', [
-        'client_name' => 'ChatGPT',
-        'redirect_uris' => ['https://chatgpt.com/connector_platform_oauth_redirect'],
+        'client_name' => $name,
+        'redirect_uris' => [$callback],
         'grant_types' => ['authorization_code', 'refresh_token'],
         'response_types' => ['code'],
         'token_endpoint_auth_method' => 'none',
@@ -29,12 +28,12 @@ function registerChatGptClient($testCase): string
 /**
  * @return array{client_id: string, code: string, verifier: string, redirect_uri: string}
  */
-function beginMcpAuthorization($testCase): array
+function beginMcpAuthorization($testCase, string $personalToken = 'valid-personal-gitverse-token', string $callback = 'https://chatgpt.com/connector_platform_oauth_redirect', string $name = 'ChatGPT'): array
 {
-    $client = registerChatGptClient($testCase);
+    $client = registerRemoteClient($testCase, $callback, $name);
     $verifier = str_repeat('v', 64);
     $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
-    $redirect = 'https://chatgpt.com/connector_platform_oauth_redirect';
+    $redirect = $callback;
 
     $testCase->get('/oauth/authorize?'.http_build_query([
         'client_id' => $client,
@@ -52,7 +51,7 @@ function beginMcpAuthorization($testCase): array
     ]);
 
     $response = $testCase->post('/oauth/authorize', [
-        'gitverse_token' => 'valid-personal-gitverse-token',
+        'gitverse_token' => $personalToken,
     ])->assertRedirect();
 
     $location = (string) $response->headers->get('Location');
@@ -94,12 +93,25 @@ it('advertises protected resource and oauth metadata for chatgpt', function (): 
         ->assertJsonPath('authorization_response_iss_parameter_supported', true);
 });
 
-it('rejects malicious oauth callback urls during client registration', function (): void {
-    $this->postJson('/oauth/register', [
-        'redirect_uris' => ['https://attacker.example/callback'],
-    ])->assertStatus(400)->assertJsonPath('error', 'invalid_redirect_uri');
+it('accepts arbitrary HTTPS provider callbacks and rejects unsafe redirects', function (): void {
+    $clientId = registerRemoteClient($this, 'https://claude.ai/api/mcp/auth_callback', 'Claude Web');
 
-    expect(DB::table('mcp_oauth_clients')->count())->toBe(0);
+    expect($clientId)->toBeString();
+
+    foreach ([
+        'http://example.com/callback',
+        'https://localhost/callback',
+        'https://127.0.0.1/callback',
+        'https://attacker.example@localhost/callback',
+        'https://cloud.example/callback#fragment',
+        'https://cloud.example:8443/callback',
+    ] as $unsafeUri) {
+        $this->postJson('/oauth/register', [
+            'redirect_uris' => [$unsafeUri],
+        ])->assertStatus(400)->assertJsonPath('error', 'invalid_redirect_uri');
+    }
+
+    expect(DB::table('mcp_oauth_clients')->count())->toBe(1);
 });
 
 it('exchanges a single use authorization code with pkce and never gives chatgpt the gitverse token', function (): void {
@@ -171,13 +183,13 @@ it('proxies an authenticated mcp call without forwarding chatgpt access token to
     });
 });
 
-it('does not permit an arbitrary gitverse token to authorize the connection', function (): void {
-    $client = registerChatGptClient($this);
+it('rejects a GitVerse credential that the upstream MCP refuses', function (): void {
+    $clientId = registerRemoteClient($this);
     $verifier = str_repeat('v', 64);
     $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
 
     $this->get('/oauth/authorize?'.http_build_query([
-        'client_id' => $client,
+        'client_id' => $clientId,
         'redirect_uri' => 'https://chatgpt.com/connector_platform_oauth_redirect',
         'response_type' => 'code',
         'code_challenge_method' => 'S256',
@@ -187,12 +199,39 @@ it('does not permit an arbitrary gitverse token to authorize the connection', fu
         'state' => 'another-state',
     ]))->assertOk();
 
-    Http::fake();
+    Http::fake(['https://mcp.gitverse.ru*' => Http::response(['error' => 'Unauthorized'], 401)]);
 
     $this->post('/oauth/authorize', [
-        'gitverse_token' => 'someone-elses-valid-token',
+        'gitverse_token' => 'an-invalid-GitVerse-token',
     ])->assertSessionHasErrors('gitverse_token');
 
-    Http::assertNothingSent();
     expect(DB::table('mcp_gitverse_credentials')->count())->toBe(0);
+});
+
+it('isolates separate AI clients and users by their GitVerse credentials', function (): void {
+    $first = beginMcpAuthorization($this, 'first-user-personal-token');
+    $firstTokens = exchangeMcpCode($this, $first)->assertOk()->json();
+
+    $second = beginMcpAuthorization($this, 'second-user-personal-token', 'https://claude.ai/api/mcp/auth_callback', 'Claude Web');
+    $secondTokens = exchangeMcpCode($this, $second)->assertOk()->json();
+
+    expect(DB::table('mcp_gitverse_credentials')->count())->toBe(2);
+
+    Http::fake([
+        'https://mcp.gitverse.ru*' => Http::response(
+            ['jsonrpc' => '2.0', 'id' => 2, 'result' => ['tools' => []]],
+            200,
+            ['Content-Type' => 'application/json'],
+        ),
+    ]);
+
+    $this->withToken($firstTokens['access_token'])
+        ->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'])
+        ->assertOk();
+    $this->withToken($secondTokens['access_token'])
+        ->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'])
+        ->assertOk();
+
+    Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer first-user-personal-token'));
+    Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer second-user-personal-token'));
 });
