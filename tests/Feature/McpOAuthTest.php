@@ -132,6 +132,25 @@ it('exchanges a single use authorization code with pkce and never gives chatgpt 
     expect(DB::table('mcp_gitverse_credentials')->count())->toBe(1);
 });
 
+it('creates UUID primary keys and matching credential foreign keys', function (): void {
+    $authorization = beginMcpAuthorization($this);
+    exchangeMcpCode($this, $authorization)->assertOk();
+
+    $credential = DB::table('mcp_gitverse_credentials')->first();
+    $code = DB::table('mcp_oauth_codes')->first();
+    $tokens = DB::table('mcp_oauth_tokens')->get();
+
+    expect(str()->isUuid($credential->id))->toBeTrue()
+        ->and(str()->isUuid($code->id))->toBeTrue()
+        ->and($code->credential_id)->toBe($credential->id)
+        ->and($tokens)->toHaveCount(2);
+
+    foreach ($tokens as $token) {
+        expect(str()->isUuid($token->id))->toBeTrue()
+            ->and($token->credential_id)->toBe($credential->id);
+    }
+});
+
 it('rotates refresh tokens and rejects replayed refresh tokens', function (): void {
     $authorization = beginMcpAuthorization($this);
     $tokens = exchangeMcpCode($this, $authorization)->assertOk()->json();
