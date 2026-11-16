@@ -67,9 +67,27 @@ it('creates public Passport clients for multiple remote AI services', function (
         ->and($client->hasGrantType('authorization_code'))->toBeTrue();
 });
 
+it('registers local loopback callbacks for MCP Inspector', function (): void {
+    foreach ([
+        'http://localhost:6274/oauth/callback',
+        'http://127.0.0.1:6276/oauth/callback',
+        'http://[::1]:6274/oauth/callback',
+    ] as $callback) {
+        $clientId = registerGatewayClient($this, $callback);
+        $client = Passport::client()->newQuery()->findOrFail($clientId);
+
+        expect($client->redirect_uris)->toContain($callback);
+    }
+});
+
 it('rejects unsafe callback addresses', function (): void {
     foreach ([
         'http://example.com/callback',
+        'http://localhost.evil.example/oauth/callback',
+        'http://127.0.0.2:6274/oauth/callback',
+        'http://[::2]:6274/oauth/callback',
+        'http://localhost:6274/oauth/callback#fragment',
+        'http://evil.example@localhost:6274/oauth/callback',
         'https://localhost/callback',
         'https://127.0.0.1/callback',
         'https://bad.example@localhost/callback',

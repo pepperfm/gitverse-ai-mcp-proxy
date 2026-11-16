@@ -45,7 +45,7 @@ This destroys all data, including connected accounts and GitVerse PATs. Any clou
 ## Security and compatibility
 
 - Passport uses signed access tokens, refresh token rotation, OAuth client records, PKCE and consent. The MCP adapter enforces a single resource URI (`APP_URL/mcp`) for authorization and token requests. The gateway accepts only tokens issued by its Passport server and scoped to `gitverse:access`.
-- DCR accepts only public HTTPS callback domains, rejects IPs, local hosts, URL fragments and userinfo; Passport validates the exact registered callback. The client name is **unverified**, so the form displays the actual callback host.
+- DCR accepts public HTTPS callback domains and HTTP loopback callbacks (`localhost`, `127.0.0.1`, `[::1]`) for local clients such as MCP Inspector. Other HTTP callbacks, remote IP addresses, URL fragments and userinfo are rejected; Passport validates the exact registered callback. The client name is **unverified**, so the form displays the actual callback host.
 - The login is one-time and tied to the pending OAuth authorization URL. OAuth approval logs out the browser session, preventing an unrelated next authorization from inheriting the previous user.
 - GitVerse PATs are encrypted at rest with the Laravel application key. Use least-privilege PATs; guard the app key and OAuth signing keys.
 - `php artisan gitverse:mcp-revoke` invalidates all Passport tokens and deletes the stored PATs. `php artisan gitverse:mcp-prune` uses Passport's native purge operation.
