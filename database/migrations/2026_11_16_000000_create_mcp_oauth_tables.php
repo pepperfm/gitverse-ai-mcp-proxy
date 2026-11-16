@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Query\Expression;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
@@ -18,18 +19,18 @@ return new class extends Migration
         });
 
         Schema::create('mcp_gitverse_credentials', function (Blueprint $table): void {
-            $table->uuid('id')->primary();
+            $table->uuid('id')->primary()->default(new Expression('gen_random_uuid()'));
             $table->string('fingerprint', 64)->unique();
             $table->text('encrypted_token');
             $table->timestamps();
         });
 
         Schema::create('mcp_oauth_codes', function (Blueprint $table): void {
-            $table->uuid('id')->primary();
+            $table->uuid('id')->primary()->default(new Expression('gen_random_uuid()'));
             $table->string('code_hash', 64)->unique();
             $table->string('client_id', 80);
             $table->foreign('client_id')->references('id')->on('mcp_oauth_clients')->cascadeOnDelete();
-            $table->foreignId('credential_id')->constrained('mcp_gitverse_credentials')->cascadeOnDelete();
+            $table->foreignUuid('credential_id')->constrained('mcp_gitverse_credentials')->cascadeOnDelete();
             $table->text('redirect_uri');
             $table->string('code_challenge', 128);
             $table->string('resource');
@@ -40,11 +41,11 @@ return new class extends Migration
         });
 
         Schema::create('mcp_oauth_tokens', function (Blueprint $table): void {
-            $table->uuid('id')->primary();
+            $table->uuid('id')->primary()->default(new Expression('gen_random_uuid()'));
             $table->string('token_hash', 64)->unique();
             $table->string('client_id', 80);
             $table->foreign('client_id')->references('id')->on('mcp_oauth_clients')->cascadeOnDelete();
-            $table->foreignId('credential_id')->constrained('mcp_gitverse_credentials')->cascadeOnDelete();
+            $table->foreignUuid('credential_id')->constrained('mcp_gitverse_credentials')->cascadeOnDelete();
             $table->string('kind', 12);
             $table->string('resource');
             $table->string('scope');
