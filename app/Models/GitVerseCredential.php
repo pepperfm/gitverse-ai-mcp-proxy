@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Attributes\Table;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Table, Guarded([]), Hidden(['encrypted_token', 'fingerprint'])]
+#[Table('mcp_gitverse_credentials'), Guarded([]), Hidden(['encrypted_token', 'fingerprint'])]
 final class GitVerseCredential extends Model
 {
     use HasUuids;

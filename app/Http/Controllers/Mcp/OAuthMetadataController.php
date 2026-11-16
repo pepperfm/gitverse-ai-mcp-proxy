@@ -92,7 +92,8 @@ final class OAuthMetadataController
 
     private function badRequest(string $error): JsonResponse
     {
-        return response()->json(['error' => $error], 400)
+        return response()
+            ->json(['error' => $error], 400)
             ->header('Cache-Control', 'no-store');
     }
 
@@ -106,18 +107,30 @@ final class OAuthMetadataController
 
         if (
             !is_array($parts)
-            || !isset($parts['host'])
+            || !isset($parts['host'], $parts['scheme'])
             || isset($parts['user'])
+            || isset($parts['pass'])
             || isset($parts['fragment'])
-            || (isset($parts['port']) && $parts['port'] !== 443)
-            || strtolower($parts['scheme'] ?? '') !== 'https'
         ) {
             return false;
         }
 
+        $scheme = strtolower($parts['scheme']);
         $host = strtolower($parts['host']);
 
-        return str_contains($host, '.')
+        // OAuth callbacks for local MCP clients.
+        if ($scheme === 'http' && in_array($host, [
+            'localhost',
+            '127.0.0.1',
+            '[::1]',
+        ], true)) {
+            return true;
+        }
+
+        // Remote clients must use public HTTPS domains.
+        return $scheme === 'https'
+            && (!isset($parts['port']) || $parts['port'] === 443)
+            && str_contains($host, '.')
             && filter_var($host, FILTER_VALIDATE_IP) === false
             && filter_var($host, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
     }
