@@ -28,7 +28,8 @@
 <main>
     <div class="mark" aria-hidden="true">GV</div>
     <h1>Подключить GitVerse</h1>
-    <p>Приложение <span class="client">{{ $clientName }}</span> запрашивает доступ к GitVerse через этот MCP-сервер. Вставь личный токен один раз, чтобы подтвердить подключение.</p>
+    <p>AI-клиент с именем <span class="client">{{ $clientName }}</span> запрашивает доступ к твоему GitVerse через этот MCP-сервер. Введи собственный персональный токен.</p>
+    <p>После подтверждения доступ получит клиент с адресом возврата <span class="client">{{ $callbackHost }}</span>. Название клиента не проверено: продолжай только если доверяешь этому адресу.</p>
 
     <form method="post" action="{{ url('/oauth/authorize') }}" autocomplete="off">
         @csrf
@@ -38,10 +39,10 @@
         @error('gitverse_token')
             <div class="error" role="alert">{{ $message }}</div>
         @enderror
-        <button type="submit">Подключить к ChatGPT</button>
+        <button type="submit">Разрешить подключение</button>
     </form>
 
-    <small id="privacy-note">Токен проверяется через официальный GitVerse MCP и сохраняется в зашифрованном виде на твоём сервере. ChatGPT получает только отдельный OAuth-токен прокси, а не токен GitVerse. Права доступа ограничены правами токена GitVerse.</small>
+    <small id="privacy-note">Токен проверяется через официальный GitVerse MCP и сохраняется в зашифрованном виде на твоём сервере. AI-клиент получает отдельный OAuth-токен прокси, а не токен GitVerse. Права доступа ограничены правами токена GitVerse.</small>
 </main>
 </body>
 </html>
