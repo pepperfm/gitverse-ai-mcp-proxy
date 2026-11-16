@@ -28,12 +28,10 @@ final class McpProxyController
             ->where('mcp_oauth_tokens.scope', config('gitverse.scope'))
             ->whereNull('mcp_oauth_tokens.revoked_at')
             ->where('mcp_oauth_tokens.expires_at', '>', now())
-            ->select('mcp_gitverse_credentials.encrypted_token', 'mcp_gitverse_credentials.fingerprint')
+            ->select('mcp_gitverse_credentials.encrypted_token')
             ->first() : null;
 
-        $allowedFingerprint = (string) config('gitverse.allowed_token_sha256');
-
-        if (! $row || strlen($allowedFingerprint) !== 64 || ! hash_equals($allowedFingerprint, $row->fingerprint)) {
+        if (! $row) {
             return response()->json(['error' => 'unauthorized'], 401)
                 ->header('WWW-Authenticate', 'Bearer resource_metadata="'.OAuthController::base().'/.well-known/oauth-protected-resource", scope="'.config('gitverse.scope').'"');
         }
