@@ -81,7 +81,7 @@ final class OAuthController
             return $this->error('invalid_client_metadata');
         }
 
-        $name = $request->input('client_name', 'ChatGPT');
+        $name = $request->input('client_name', 'Remote MCP client');
 
         if (! is_string($name) || strlen($name) > 150 || trim($name) === '') {
             return $this->error('invalid_client_metadata');
@@ -142,7 +142,10 @@ final class OAuthController
             'state' => $state,
         ]);
 
-        return view('gitverse-connect', ['clientName' => $client->name]);
+        return view('gitverse-connect', [
+            'clientName' => $client->name,
+            'callbackHost' => parse_url($redirect, PHP_URL_HOST),
+        ]);
     }
 
     public function approve(Request $request): RedirectResponse
@@ -150,7 +153,7 @@ final class OAuthController
         $pending = $request->session()->get('mcp_oauth_pending');
 
         if (! is_array($pending)) {
-            abort(400, 'OAuth session expired. Restart the ChatGPT connection.');
+            abort(400, 'OAuth session expired. Restart the MCP connection.');
         }
 
         $request->validate([
@@ -159,14 +162,6 @@ final class OAuthController
 
         $gitverseToken = (string) $request->input('gitverse_token');
         $fingerprint = hash('sha256', $gitverseToken);
-        $allowedFingerprint = (string) config('gitverse.allowed_token_sha256');
-
-        if (strlen($allowedFingerprint) !== 64 || ! hash_equals($allowedFingerprint, $fingerprint)) {
-            return back()->withErrors([
-                'gitverse_token' => 'Этот токен не разрешён для данного сервера. Проверь GITVERSE_ALLOWED_TOKEN_SHA256.',
-            ]);
-        }
-
         try {
             $probe = Http::withToken($gitverseToken)
                 ->withHeaders(['Accept' => 'application/json, text/event-stream'])
@@ -225,7 +220,9 @@ final class OAuthController
             'iss' => self::base(),
         ], '', '&', PHP_QUERY_RFC3986);
 
-        return redirect()->away($pending['redirect_uri'].'?'.$query)
+        $separator = str_contains($pending['redirect_uri'], '?') ? '&' : '?';
+
+        return redirect()->away($pending['redirect_uri'].$separator.$query)
             ->header('Cache-Control', 'no-store');
     }
 
@@ -370,6 +367,25 @@ final class OAuthController
 
     private function allowedRedirectUri(string $uri): bool
     {
-        return preg_match('~^https://chatgpt\.com/(?:connector_platform_oauth_redirect|connector/oauth/[A-Za-z0-9_-]+)$~D', $uri) === 1;
+        if (strlen($uri) > 2048 || filter_var($uri, FILTER_VALIDATE_URL) === false) {
+            return false;
+        }
+
+        $parts = parse_url($uri);
+
+        if (! is_array($parts)
+            || strtolower($parts['scheme'] ?? '') !== 'https'
+            || ! isset($parts['host'])
+            || isset($parts['user'])
+            || isset($parts['fragment'])
+            || (isset($parts['port']) && $parts['port'] !== 443)) {
+            return false;
+        }
+
+        $host = strtolower($parts['host']);
+
+        return str_contains($host, '.')
+            && filter_var($host, FILTER_VALIDATE_IP) === false
+            && filter_var($host, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
     }
 }
