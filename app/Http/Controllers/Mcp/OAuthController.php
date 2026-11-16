@@ -72,6 +72,8 @@ final class OAuthController
         $responses = $request->input('response_types', ['code']);
 
         if ($methods !== 'none' || ! is_array($grants) || ! is_array($responses)
+            || count(array_filter($grants, 'is_string')) !== count($grants)
+            || count(array_filter($responses, 'is_string')) !== count($responses)
             || array_diff($grants, ['authorization_code', 'refresh_token'])
             || array_diff($responses, ['code'])
             || ! in_array('authorization_code', $grants, true)
