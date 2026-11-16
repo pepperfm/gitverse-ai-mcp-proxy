@@ -10,7 +10,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('mcp_gitverse_credentials', function (Blueprint $table): void {
+        Schema::create('mcp_gitverse_credentials', static function (Blueprint $table): void {
             $table->uuid('id')->primary();
             $table->foreignUuid('user_id')->unique()->constrained('users')->cascadeOnDelete();
             $table->string('fingerprint', 64)->unique();
@@ -18,7 +18,7 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('oauth_clients', function (Blueprint $table): void {
+        Schema::create('oauth_clients', static function (Blueprint $table): void {
             $table->uuid('id')->primary();
             $table->nullableUuidMorphs('owner');
             $table->string('name');
@@ -30,7 +30,7 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('oauth_auth_codes', function (Blueprint $table): void {
+        Schema::create('oauth_auth_codes', static function (Blueprint $table): void {
             $table->char('id', 80)->primary();
             $table->foreignUuid('user_id')->index();
             $table->foreignUuid('client_id');
@@ -39,7 +39,7 @@ return new class extends Migration
             $table->dateTime('expires_at')->nullable();
         });
 
-        Schema::create('oauth_access_tokens', function (Blueprint $table): void {
+        Schema::create('oauth_access_tokens', static function (Blueprint $table): void {
             $table->char('id', 80)->primary();
             $table->foreignUuid('user_id')->nullable()->index();
             $table->foreignUuid('client_id');
@@ -50,7 +50,7 @@ return new class extends Migration
             $table->dateTime('expires_at')->nullable();
         });
 
-        Schema::create('oauth_refresh_tokens', function (Blueprint $table): void {
+        Schema::create('oauth_refresh_tokens', static function (Blueprint $table): void {
             $table->char('id', 80)->primary();
             $table->char('access_token_id', 80)->index();
             $table->boolean('revoked');

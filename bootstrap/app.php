@@ -10,7 +10,7 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
-        health: '/up',
+        // health: '/up',
         then: static function (): void {
             // MCP and OAuth machine endpoints must NOT use session/CSRF middleware.
             Route::group([], base_path('routes/mcp.php'));
