@@ -1,126 +1,56 @@
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/pepperfm/laravel-starter-kit.svg?style=flat-square)](https://packagist.org/packages/pepperfm/laravel-starter-kit)
-[![Total Downloads](https://img.shields.io/packagist/dt/pepperfm/laravel-starter-kit.svg?style=flat-square)](https://packagist.org/packages/pepperfm/laravel-starter-kit)
+# GitVerse AI MCP Proxy
 
-# [Laravel Starter Kit](https://docs.pepperfm.com/laravel-starter-kit)
+A small Laravel 13 / PHP 8.5 service connecting ChatGPT to the official GitVerse remote MCP server through OAuth authorization-code + PKCE.
 
-A modern, developer-friendly Laravel starter kit featuring a curated selection of tools and a pragmatic
-setup flow — ready for production-focused application work from day one.
+## What it does
 
-## ✨ Features
+- Exposes an HTTPS MCP Streamable HTTP endpoint at /mcp.
+- Advertises OAuth protected-resource and authorization-server metadata.
+- Supports restricted ChatGPT Dynamic Client Registration (DCR), PKCE S256, short-lived access tokens and rotating refresh tokens.
+- Shows **one Blade form** during the ChatGPT authorization flow to paste a GitVerse Personal Access Token (PAT).
+- Verifies the PAT against the official GitVerse MCP, encrypts it at rest with Laravel APP_KEY, and proxies MCP traffic using that PAT. ChatGPT never receives the GitVerse PAT.
+- Refuses other users' PATs unless their SHA-256 fingerprint matches the configured value. No registration system, Livewire, Nuxt, separate Redis service or GitHub Actions is required.
 
-- Laravel 13, PHP 8.5+ requirement
-- Optional custom admin frontend foundation during setup:
-  - Inertia 3 + Vue 3 + TypeScript
-  - Nuxt UI 4 + Tailwind CSS 4 (based on Nuxt UI Dashboard primitives, without requiring Nuxt)
-  - Ziggy, Vue I18n, VueUse, Valibot
-- Choose your API utility during setup:
-  - [pepperfm/api-responder-for-laravel](https://docs.pepperfm.com/api-responder-for-laravel)
-  - [spatie/laravel-data](https://github.com/spatie/laravel-data)
-- API scaffolding with [Laravel Sanctum](https://laravel.com/docs/sanctum)
-- Ready-to-use Swagger Nuxt UI docs with [pepperfm/swagger-nuxt-ui-for-laravel](https://docs.pepperfm.com/swagger-nuxt-ui-for-laravel)
-- Optional observability tools during setup:
-  - [OPcodes Log Viewer](https://log-viewer.opcodes.io/)
-  - [Laravel Horizon](https://laravel.com/docs/horizon)
-  - [Laravel Telescope](https://laravel.com/docs/telescope)
-  - [Laravel Pulse](https://laravel.com/docs/pulse)
-- Telegram bot integration via [defstudio/telegraph](https://github.com/defstudio/telegraph)
-- Local development environment powered by [Laravel Sail](https://laravel.com/docs/sail)
-- UUID primary keys for the base user model
-- Pre-configured with:
-    - Pest + Larastan + Laravel PAO for clean and agent-friendly testing
-    - Laravel Debugbar, Ray, and Pint
+**Important:** No end-to-end ChatGPT integration has been verified yet. The custom OAuth server is security-sensitive; review and test it on an HTTPS staging domain before exposing production repositories. Configure the GitVerse PAT with the smallest possible permissions.
 
-## 📦 Installation
+## Setup
 
-```bash
-laravel new example-app --using=pepperfm/laravel-starter-kit --database=pgsql
-```
-The `--database=pgsql` flag is important: Laravel Installer defaults custom starter kits to SQLite when no database driver is specified.
-When using Sail, choose the Sail runtime during setup so containers are available for Laravel Installer's final migration step.
+Install PHP 8.5, Composer and a database driver (SQLite is enough for one user). Use an HTTPS reverse proxy and point the document root to Laravel's public directory.
 
-After creating your project, the interactive starter:setup command will run automatically, helping you choose:
-- Whether setup commands should run on the host machine, through Sail, or auto-detect a running Sail container
-- Whether to publish the custom admin frontend foundation
-- API support packages, Sanctum, and Swagger Nuxt UI docs
-- Optional features like Log Viewer, Horizon, Telescope, Pulse, Telegram bot integration, Ray debugger, Media Library, and Permissions
-- Review an installation summary before Composer, frontend, or post-install Artisan commands run
+1. Run composer install --no-dev --optimize-autoloader.
+2. Copy .env.example to .env and configure APP_URL to the exact public https:// hostname (no trailing slash). Set APP_ENV=production and APP_DEBUG=false.
+3. Run php artisan key:generate.
+4. Create database/database.sqlite (or configure PostgreSQL). Make the database and Laravel storage writable by the application.
+5. Generate the SHA-256 fingerprint of your existing GitVerse token **locally**. In a POSIX shell:
+   - read -rs GITVERSE_TOKEN; export GITVERSE_TOKEN
+   - php -r 'echo hash("sha256", getenv("GITVERSE_TOKEN")).PHP_EOL;'
+   - unset GITVERSE_TOKEN
+   Put only the printed 64-character hash in GITVERSE_ALLOWED_TOKEN_SHA256. Do **not** put the raw PAT in .env, GitHub or ChatGPT.
+6. Run php artisan migrate --force, then php artisan optimize.
+7. In ChatGPT → Plugins → Add custom MCP server, enter https://your-host/mcp, choose OAuth, and create the private plugin. The server advertises the DCR registration URL and authorization endpoints automatically.
+8. On first connection, ChatGPT opens the Blade authorization screen. Paste your existing PAT, then approve. After redirecting, test a read-only GitVerse tool such as listing repositories.
 
-You will also be prompted to configure environment variables `WWWUSER` and `WWWGROUP` for proper permissions. The setup command also normalizes the PostgreSQL `DB_*` variables so they are active after `laravel new`.
+For local tests use an in-memory SQLite test database and execute php artisan test --compact --filter=Mcp.
 
-If you choose Sail and the app container is not running yet, setup can start Sail with `./sail up -d --build` before installing selected packages.
+## Security model
 
-**Admin preset notes:** The initial installation replaces the base `package.json`, `vite.config.js` and `resources/css/app.css` with the Inertia/Vue foundation. To avoid destroying work, the installer refuses to overwrite any other existing preset target (including an already installed panel). It is not a general-purpose update command for existing projects.
+DCR accepts **only** the official ChatGPT stable callback or callback-ID-specific URLs on chatgpt.com. Redirect URIs are checked again during authorization. The OAuth code expires after 5 minutes, is single-use and PKCE-bound; access tokens expire after 1 hour and refresh tokens after 30 days. OAuth token values are stored only as SHA-256 hashes. PATs are encrypted at rest with APP_KEY, and only PATs matching GITVERSE_ALLOWED_TOKEN_SHA256 can authorize or make MCP calls.
 
-The panel is protected by Laravel session authentication. Guests visiting `/panel` are redirected to `/panel/login`; failed attempts are rate-limited, and logout invalidates the session. There is intentionally **no public sign-up**.
+Changing GITVERSE_ALLOWED_TOKEN_SHA256 invalidates existing MCP access for the old PAT. To revoke ChatGPT access immediately, revoke its linked credentials by deleting the matching rows from mcp_oauth_tokens and mcp_gitverse_credentials, or revoke the PAT in GitVerse. Rotate APP_KEY only with a migration plan: encrypted PATs would become unreadable.
 
-After installing the admin preset, run migrations and create an initial application user with `php artisan panel:user` (the command securely prompts for a password). Then sign in at `/panel/login`. **Any authenticated application user can currently access the panel**; add roles/policies if the project requires a separate administrator role. For public deployments, configure HTTPS and secure cookie/session settings.
+Do not log request bodies, OAuth credentials, or Authorization headers. Terminate TLS at a trusted reverse proxy, limit ingress, keep the APP_KEY safe, and consider additional firewall/IP restrictions. Configure PHP-FPM and nginx to allow long-running streaming requests; ensure nginx does not buffer SSE (the app sets X-Accel-Buffering: no).
 
-Frontend package constraints are refreshed for new installs. The PHP lockfile remains pinned until it is regenerated with Composer, so run `composer update -W` in a controlled environment and review its diff before releasing a refreshed template.
+## Protocol
 
-During setup, the selected command runtime controls:
-- Installing selected composer packages
-- Publishing selected frontend preset files and installing frontend dependencies
-- Running post-install artisan commands specific to installed packages
+- GET /.well-known/oauth-protected-resource
+- GET /.well-known/oauth-authorization-server
+- POST /oauth/register
+- GET + POST /oauth/authorize (session + CSRF-protected Blade form)
+- POST /oauth/token
+- GET + POST + DELETE /mcp
 
-If you skip Sail during setup, you can start it later:
-```bash
-chmod 755 ./sail
-./sail up -d --build
-```
+The proxy passes upstream MCP session/version/event headers and streams responses without reading SSE responses into memory. It does not implement the GitVerse tools itself.
 
-## ⚙️ Setup Command
+Based on [OpenAI MCP OAuth guidance](https://developers.openai.com/plugins/build/auth), [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization), and [GitVerse MCP docs](https://gitverse.ru/docs/ai/mcp/).
 
-Run manually anytime:
-```bash
-php artisan starter:setup
-```
-Interactive setup will help you customize your project features and install optional packages with their post-install steps.
-
-Preset mode is available when you want a repeatable setup path:
-```bash
-php artisan starter:setup --preset=api
-php artisan starter:setup --preset=admin
-php artisan starter:setup --preset=observability
-php artisan starter:setup --preset=full
-```
-
-Available presets:
-
-| Preset | Includes |
-| --- | --- |
-| `api` | Sanctum, Swagger Nuxt UI docs, Spatie Laravel Data |
-| `admin` | Custom Inertia + Vue + Nuxt UI admin frontend foundation |
-| `observability` | Log Viewer, Horizon, Pulse, Telescope as a dev dependency |
-| `full` | `admin` + `api` + `observability` |
-
-## 🛠 Post-Install Commands
-For installed packages, the following post-install artisan commands will run automatically unless `--no-post` is used:
-
-| Package                          | Команды                                                                                 |
-|----------------------------------|------------------------------------------------------------------------------------------|
-| `laravel/sanctum`              | `php artisan install:api --without-migration-prompt` |
-| `opcodesio/log-viewer`          | `php artisan log-viewer:publish` |
-| `laravel/horizon`               | `php artisan horizon:install` |
-| `laravel/telescope`             | `php artisan telescope:install`<br>`php artisan migrate` |
-| `laravel/pulse`                 | `php artisan vendor:publish --provider="Laravel\Pulse\PulseServiceProvider"`<br>`php artisan migrate` |
-| `defstudio/telegraph`           | `php artisan vendor:publish --tag="telegraph-migrations"`<br>`php artisan migrate`      |
-| `spatie/laravel-medialibrary`   | `php artisan vendor:publish --provider="Spatie\MediaLibrary\MediaLibraryServiceProvider" --tag="medialibrary-migrations"`<br>`php artisan migrate` |
-| `spatie/laravel-permission`     | `php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider"`<br>`php artisan optimize:clear`<br>`php artisan migrate` |
-
----
-
-## 🧪 Testing & Quality
-
-```bash
-make pint        # Show unstaged files with codestyle issues
-make pint-hard   # Fix codestyle issues automatically
-make stan        # Run Larastan (static analysis)
-make test        # Run all tests via Pest
-```
-
----
-
-## 📚 Useful Links
-
-- [API Responder Documentation](https://docs.pepperfm.com/api-responder-for-laravel)
-- [Spatie Laravel Data](https://github.com/spatie/laravel-data)
+No .github/CI directory is introduced.
