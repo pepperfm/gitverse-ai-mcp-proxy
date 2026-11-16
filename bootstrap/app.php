@@ -12,7 +12,7 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__ . '/../routes/console.php',
         health: '/up',
         then: static function (): void {
-            Route::group(base_path('routes/mcp.php'));
+            Route::middleware('web')->group(base_path('routes/mcp.php'));
 
             if (file_exists(base_path('routes/panel.php'))) {
                 Route::middleware('web')->group(base_path('routes/panel.php'));
