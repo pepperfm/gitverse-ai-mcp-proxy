@@ -15,7 +15,11 @@ final class McpProxyController
 {
     public function handle(Request $request): Response
     {
-        if ($request->hasHeader('Origin') && ! in_array($request->header('Origin'), config('gitverse.allowed_origins', []), true)) {
+        if (
+            $request->hasHeader('Origin')
+            && !
+            in_array($request->header('Origin'), config('gitverse.allowed_origins', []), true)
+        ) {
             return response('Origin not allowed', 403);
         }
 
@@ -31,13 +35,13 @@ final class McpProxyController
             ->select('mcp_gitverse_credentials.encrypted_token')
             ->first() : null;
 
-        if (! $row) {
-            return response()->json(['error' => 'unauthorized'], 401)
-                ->header('WWW-Authenticate', 'Bearer resource_metadata="'.OAuthController::base().'/.well-known/oauth-protected-resource", scope="'.config('gitverse.scope').'"');
+        if (!$row) {
+            return response()
+                ->json(['error' => 'unauthorized'], 401)
+                ->header('WWW-Authenticate', 'Bearer resource_metadata="' . OAuthController::base() . '/.well-known/oauth-protected-resource", scope="' . config('gitverse.scope') . '"');
         }
 
         $rawBody = $request->getContent();
-
         if (strlen($rawBody) > 2 * 1024 * 1024) {
             return response('MCP request too large', 413);
         }
@@ -90,7 +94,7 @@ final class McpProxyController
 
         return response()->stream(static function () use ($body): void {
             try {
-                while (! $body->eof() && connection_aborted() === 0) {
+                while (!$body->eof() && connection_aborted() === 0) {
                     echo $body->read(8192);
 
                     if (ob_get_level() > 0) {

@@ -13,19 +13,19 @@ return new class extends Migration
         Schema::create('mcp_oauth_clients', function (Blueprint $table): void {
             $table->string('id', 80)->primary();
             $table->string('name', 150);
-            $table->json('redirect_uris');
+            $table->jsonb('redirect_uris');
             $table->timestamps();
         });
 
         Schema::create('mcp_gitverse_credentials', function (Blueprint $table): void {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->string('fingerprint', 64)->unique();
             $table->text('encrypted_token');
             $table->timestamps();
         });
 
         Schema::create('mcp_oauth_codes', function (Blueprint $table): void {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->string('code_hash', 64)->unique();
             $table->string('client_id', 80);
             $table->foreign('client_id')->references('id')->on('mcp_oauth_clients')->cascadeOnDelete();
@@ -40,7 +40,7 @@ return new class extends Migration
         });
 
         Schema::create('mcp_oauth_tokens', function (Blueprint $table): void {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->string('token_hash', 64)->unique();
             $table->string('client_id', 80);
             $table->foreign('client_id')->references('id')->on('mcp_oauth_clients')->cascadeOnDelete();

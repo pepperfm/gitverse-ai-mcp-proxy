@@ -26,4 +26,6 @@ cghooks.lock
 .agents
 .codex
 .claude
+.cursor
+.grok
 .mcp.json

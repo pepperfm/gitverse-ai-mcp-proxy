@@ -13,8 +13,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
-use Symfony\Component\HttpFoundation\Response;
 
 final class OAuthController
 {
@@ -25,7 +23,7 @@ final class OAuthController
 
     public static function resource(): string
     {
-        return self::base().'/mcp';
+        return self::base() . '/mcp';
     }
 
     public function protectedResource(): JsonResponse
@@ -41,9 +39,9 @@ final class OAuthController
     {
         return response()->json([
             'issuer' => self::base(),
-            'authorization_endpoint' => self::base().'/oauth/authorize',
-            'token_endpoint' => self::base().'/oauth/token',
-            'registration_endpoint' => self::base().'/oauth/register',
+            'authorization_endpoint' => self::base() . '/oauth/authorize',
+            'token_endpoint' => self::base() . '/oauth/token',
+            'registration_endpoint' => self::base() . '/oauth/register',
             'authorization_response_iss_parameter_supported' => true,
             'response_types_supported' => ['code'],
             'grant_types_supported' => ['authorization_code', 'refresh_token'],
@@ -57,12 +55,12 @@ final class OAuthController
     {
         $uris = $request->input('redirect_uris');
 
-        if (! is_array($uris) || count($uris) < 1 || count($uris) > 5) {
+        if (!is_array($uris) || count($uris) < 1 || count($uris) > 5) {
             return $this->error('invalid_redirect_uri');
         }
 
         foreach ($uris as $uri) {
-            if (! is_string($uri) || ! $this->allowedRedirectUri($uri)) {
+            if (!is_string($uri) || !$this->allowedRedirectUri($uri)) {
                 return $this->error('invalid_redirect_uri');
             }
         }
@@ -71,35 +69,42 @@ final class OAuthController
         $grants = $request->input('grant_types', ['authorization_code', 'refresh_token']);
         $responses = $request->input('response_types', ['code']);
 
-        if ($methods !== 'none' || ! is_array($grants) || ! is_array($responses)
-            || count(array_filter($grants, 'is_string')) !== count($grants)
-            || count(array_filter($responses, 'is_string')) !== count($responses)
+        if (
+            $methods !== 'none'
+            || !is_array($grants)
+            || !is_array($responses)
             || array_diff($grants, ['authorization_code', 'refresh_token'])
             || array_diff($responses, ['code'])
-            || ! in_array('authorization_code', $grants, true)
-            || ! in_array('code', $responses, true)) {
+            || !in_array('authorization_code', $grants, true)
+            || !in_array('code', $responses, true)
+            || count(array_filter($grants, 'is_string')) !== count($grants)
+            || count(array_filter($responses, 'is_string')) !== count($responses)
+        ) {
             return $this->error('invalid_client_metadata');
         }
 
         $name = $request->input('client_name', 'Remote MCP client');
 
-        if (! is_string($name) || strlen($name) > 150 || trim($name) === '') {
+        if (!is_string($name) || strlen($name) > 150 || trim($name) === '') {
             return $this->error('invalid_client_metadata');
         }
 
-        $id = Str::random(48);
+        $id = str()->random(48);
 
         DB::table('mcp_oauth_clients')->insert([
             'id' => $id,
             'name' => $name,
-            'redirect_uris' => json_encode(array_values(array_unique($uris)), JSON_THROW_ON_ERROR),
+            'redirect_uris' => $uris
+                |> array_unique(...)
+                |> array_values(...)
+                |> (static fn($x) => json_encode($x, JSON_THROW_ON_ERROR)),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
         return response()->json([
             'client_id' => $id,
-            'client_id_issued_at' => now()->timestamp,
+            'client_id_issued_at' => now()->getTimestamp(),
             'client_name' => $name,
             'redirect_uris' => array_values(array_unique($uris)),
             'grant_types' => ['authorization_code', 'refresh_token'],
@@ -121,15 +126,20 @@ final class OAuthController
             ? DB::table('mcp_oauth_clients')->where('id', $clientId)->first()
             : null;
 
-        if (! $client || ! is_string($redirect)
-            || ! in_array($redirect, json_decode($client->redirect_uris, true, 512, JSON_THROW_ON_ERROR), true)
-            || ! $this->allowedRedirectUri($redirect)
+        if (
+            !$client
+            || !is_string($redirect)
+            || !is_string($challenge)
+            || !is_string($state)
+            || !$this->allowedRedirectUri($redirect)
             || $request->query('response_type') !== 'code'
             || $request->query('code_challenge_method') !== 'S256'
-            || ! is_string($challenge) || preg_match('/^[A-Za-z0-9_-]{43}$/D', $challenge) !== 1
-            || ! is_string($state) || strlen($state) > 1024
+            || preg_match('/^[A-Za-z0-9_-]{43}$/D', $challenge) !== 1
+            || strlen($state) > 1024
             || $scope !== config('gitverse.scope')
-            || $request->query('resource') !== self::resource()) {
+            || !in_array($redirect, json_decode($client->redirect_uris, true, 512, JSON_THROW_ON_ERROR), true)
+            || $request->query('resource') !== self::resource()
+        ) {
             abort(400, 'Invalid OAuth authorization request');
         }
 
@@ -151,8 +161,7 @@ final class OAuthController
     public function approve(Request $request): RedirectResponse
     {
         $pending = $request->session()->get('mcp_oauth_pending');
-
-        if (! is_array($pending)) {
+        if (!is_array($pending)) {
             abort(400, 'OAuth session expired. Restart the MCP connection.');
         }
 
@@ -160,7 +169,7 @@ final class OAuthController
             'gitverse_token' => ['required', 'string', 'min:12', 'max:8192'],
         ]);
 
-        $gitverseToken = (string) $request->input('gitverse_token');
+        $gitverseToken = $request->str('gitverse_token')->value();
         $fingerprint = hash('sha256', $gitverseToken);
         try {
             $probe = Http::withToken($gitverseToken)
@@ -173,17 +182,17 @@ final class OAuthController
                     'method' => 'initialize',
                     'params' => [
                         'protocolVersion' => '2025-03-26',
-                        'capabilities' => new \stdClass(),
+                        'capabilities' => new \stdClass,
                         'clientInfo' => ['name' => 'gitverse-ai-mcp-proxy', 'version' => '1.0.0'],
                     ],
                 ]);
-        } catch (ConnectionException $exception) {
+        } catch (ConnectionException) {
             return back()->withErrors([
                 'gitverse_token' => 'GitVerse MCP недоступен. Повтори попытку позже.',
             ]);
         }
 
-        if (! $probe->successful()) {
+        if (!$probe->successful()) {
             return back()->withErrors([
                 'gitverse_token' => 'GitVerse не принял токен или MCP вернул ошибку.',
             ]);
@@ -191,13 +200,18 @@ final class OAuthController
 
         DB::table('mcp_gitverse_credentials')->updateOrInsert(
             ['fingerprint' => $fingerprint],
-            ['encrypted_token' => Crypt::encryptString($gitverseToken), 'updated_at' => now(), 'created_at' => now()]
+            [
+                'encrypted_token' => Crypt::encryptString($gitverseToken),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
         );
 
         $credentialId = DB::table('mcp_gitverse_credentials')
-            ->where('fingerprint', $fingerprint)->value('id');
+            ->where('fingerprint', $fingerprint)
+            ->value('id');
 
-        $code = Str::random(80);
+        $code = str()->random(80);
 
         DB::table('mcp_oauth_codes')->insert([
             'code_hash' => hash('sha256', $code),
@@ -222,7 +236,7 @@ final class OAuthController
 
         $separator = str_contains($pending['redirect_uri'], '?') ? '&' : '?';
 
-        return redirect()->away($pending['redirect_uri'].$separator.$query)
+        return redirect()->away($pending['redirect_uri'] . $separator . $query)
             ->header('Cache-Control', 'no-store');
     }
 
@@ -231,18 +245,18 @@ final class OAuthController
         $grant = $request->input('grant_type');
         $clientId = $request->input('client_id');
 
-        if (! is_string($clientId) || ! DB::table('mcp_oauth_clients')->where('id', $clientId)->exists()) {
+        if (
+            !is_string($clientId)
+            || !DB::table('mcp_oauth_clients')->where('id', $clientId)->exists()
+        ) {
             return $this->error('invalid_client', 401);
         }
-
         if ($request->input('resource') !== self::resource()) {
             return $this->error('invalid_target');
         }
-
         if ($grant === 'authorization_code') {
             return $this->exchangeCode($request, $clientId);
         }
-
         if ($grant === 'refresh_token') {
             return $this->refresh($request, $clientId);
         }
@@ -256,27 +270,40 @@ final class OAuthController
         $verifier = $request->input('code_verifier');
         $redirect = $request->input('redirect_uri');
 
-        if (! is_string($code) || ! is_string($verifier) || ! is_string($redirect)
-            || preg_match('/^[A-Za-z0-9._~-]{43,128}$/D', $verifier) !== 1) {
+        if (
+            !is_string($code)
+            || !is_string($verifier)
+            || !is_string($redirect)
+            || preg_match('/^[A-Za-z0-9._~-]{43,128}$/D', $verifier) !== 1
+        ) {
             return $this->error('invalid_grant');
         }
 
-        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $challenge = hash('sha256', $verifier, true)
+            |> base64_encode(...)
+            |> (static fn($x) => strtr($x, '+/', '-_'))
+            |> (static fn($x) => rtrim($x, '='));
 
         $issued = DB::transaction(function () use ($code, $clientId, $redirect, $challenge): ?array {
-            $grant = DB::table('mcp_oauth_codes')->where('code_hash', hash('sha256', $code))
-                ->lockForUpdate()->first();
+            $grant = DB::table('mcp_oauth_codes')
+                ->where('code_hash', hash('sha256', $code))
+                ->lockForUpdate()
+                ->first();
 
-            if (! $grant || $grant->client_id !== $clientId
+            if (
+                !$grant
+                || $grant->client_id !== $clientId
                 || $grant->redirect_uri !== $redirect
-                || $grant->resource !== self::resource()
-                || ! hash_equals($grant->code_challenge, $challenge)
                 || $grant->consumed_at !== null
-                || Carbon::parse($grant->expires_at)->isPast()) {
+                || $grant->resource !== self::resource()
+                || !hash_equals($grant->code_challenge, $challenge)
+                || Carbon::parse($grant->expires_at)->isPast()
+            ) {
                 return null;
             }
 
-            DB::table('mcp_oauth_codes')->where('id', $grant->id)
+            DB::table('mcp_oauth_codes')
+                ->where('id', $grant->id)
                 ->update(['consumed_at' => now(), 'updated_at' => now()]);
 
             return $this->issuePair($clientId, $grant->credential_id, $grant->scope);
@@ -289,24 +316,29 @@ final class OAuthController
     {
         $refreshToken = $request->input('refresh_token');
 
-        if (! is_string($refreshToken) || $refreshToken === '') {
+        if (!is_string($refreshToken) || $refreshToken === '') {
             return $this->error('invalid_grant');
         }
 
         $issued = DB::transaction(function () use ($refreshToken, $clientId): ?array {
-            $token = DB::table('mcp_oauth_tokens')->where('token_hash', hash('sha256', $refreshToken))
-                ->lockForUpdate()->first();
+            $token = DB::table('mcp_oauth_tokens')
+                ->where('token_hash', hash('sha256', $refreshToken))
+                ->lockForUpdate()
+                ->first();
 
-            if (! $token || $token->client_id !== $clientId
+            if (
+                !$token || $token->client_id !== $clientId
                 || $token->kind !== 'refresh'
+                || $token->revoked_at !== null
                 || $token->resource !== self::resource()
                 || $token->scope !== config('gitverse.scope')
-                || $token->revoked_at !== null
-                || Carbon::parse($token->expires_at)->isPast()) {
+                || Carbon::parse($token->expires_at)->isPast()
+            ) {
                 return null;
             }
 
-            DB::table('mcp_oauth_tokens')->where('id', $token->id)
+            DB::table('mcp_oauth_tokens')
+                ->where('id', $token->id)
                 ->update(['revoked_at' => now(), 'updated_at' => now()]);
 
             return $this->issuePair($clientId, $token->credential_id, $token->scope);
@@ -317,8 +349,8 @@ final class OAuthController
 
     private function issuePair(string $clientId, int $credentialId, string $scope): array
     {
-        $access = Str::random(80);
-        $refresh = Str::random(80);
+        $access = str()->random(80);
+        $refresh = str()->random(80);
         $now = now();
 
         DB::table('mcp_oauth_tokens')->insert([
@@ -357,7 +389,9 @@ final class OAuthController
 
     private function tokenResponse(array $tokens): JsonResponse
     {
-        return response()->json($tokens)->header('Cache-Control', 'no-store')->header('Pragma', 'no-cache');
+        return response()->json($tokens)
+            ->header('Cache-Control', 'no-store')
+            ->header('Pragma', 'no-cache');
     }
 
     private function error(string $error, int $status = 400): JsonResponse
@@ -373,12 +407,14 @@ final class OAuthController
 
         $parts = parse_url($uri);
 
-        if (! is_array($parts)
-            || strtolower($parts['scheme'] ?? '') !== 'https'
-            || ! isset($parts['host'])
+        if (
+            !is_array($parts)
+            || !isset($parts['host'])
             || isset($parts['user'])
             || isset($parts['fragment'])
-            || (isset($parts['port']) && $parts['port'] !== 443)) {
+            || (isset($parts['port']) && $parts['port'] !== 443)
+            || strtolower($parts['scheme'] ?? '') !== 'https'
+        ) {
             return false;
         }
 

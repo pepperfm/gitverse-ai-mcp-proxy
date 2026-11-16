@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5bc81a5e274ef9b96d05d94925191078",
+    "content-hash": "c9d0e68460da717eed883959bb9b10fb",
     "packages": [
         {
             "name": "brick/math",
@@ -2731,16 +2731,16 @@
         },
         {
             "name": "pepperfm/api-responder-for-laravel",
-            "version": "3.0.2",
+            "version": "4.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/pepperfm/api-responder-for-laravel.git",
-                "reference": "7baad6f6ccfa90b61ab5bf98d407bd2eab0203bf"
+                "reference": "c1945c3f343dbb720a5eafcbd987ffa7aa30c486"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/pepperfm/api-responder-for-laravel/zipball/7baad6f6ccfa90b61ab5bf98d407bd2eab0203bf",
-                "reference": "7baad6f6ccfa90b61ab5bf98d407bd2eab0203bf",
+                "url": "https://api.github.com/repos/pepperfm/api-responder-for-laravel/zipball/c1945c3f343dbb720a5eafcbd987ffa7aa30c486",
+                "reference": "c1945c3f343dbb720a5eafcbd987ffa7aa30c486",
                 "shasum": ""
             },
             "require": {
@@ -2806,10 +2806,10 @@
             ],
             "support": {
                 "issues": "https://github.com/pepperfm/api-responder-for-laravel/issues",
-                "source": "https://github.com/pepperfm/api-responder-for-laravel/tree/3.0.2"
+                "source": "https://github.com/pepperfm/api-responder-for-laravel/tree/4.0.0"
             },
-            "time": "2026-05-20T16:13:09+00:00",
-            "published-time": "2026-05-20T16:13:37+00:00"
+            "time": "2026-11-16T15:00:28+00:00",
+            "published-time": "2026-11-16T17:27:20+00:00"
         },
         {
             "name": "pepperfm/swagger-nuxt-ui-for-laravel",
