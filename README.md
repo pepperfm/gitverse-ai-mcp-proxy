@@ -1,59 +1,68 @@
 # GitVerse Remote MCP Gateway
 
-A Laravel 13 / PHP 8.5 gateway for **cloud-hosted AI clients** (ChatGPT, Claude Web, and other remote MCP clients) to connect to the official GitVerse MCP using **each user's own GitVerse Personal Access Token**.
+A Laravel 13 / PHP 8.5 gateway that lets **cloud AI clients** connect to GitVerse's official remote MCP with each user's own GitVerse Personal Access Token (PAT).
 
-**One public MCP URL:** `https://your-domain.example/mcp`. No client-side app, local agent or Livewire is required.
+The gateway uses **Laravel Passport 13** for OAuth2 (authorization codes, PKCE, tokens, refresh, client storage) and **Eloquent** for users and encrypted GitVerse credentials. Only the small MCP-specific discovery/DCR adapter and HTTP/SSE forwarding are project code.
 
-## How a connection works
+## Connection flow
 
-1. A person adds the public MCP URL to an AI service that supports remote MCP with OAuth.
-2. That service registers an OAuth public client using Dynamic Client Registration (DCR), or uses pre-registered credentials where supported.
-3. The gateway shows its sole Blade page: the registered client name, **actual OAuth redirect domain**, and a PAT input.
-4. The user enters **their own GitVerse PAT**. The gateway checks it with GitVerse MCP and stores it encrypted under Laravel's APP_KEY.
-5. The gateway issues short-lived OAuth tokens **for that specific client and credential**. AI services never receive the GitVerse PAT.
-6. MCP requests are authenticated at the gateway and forwarded to GitVerse using the PAT belonging to that connection.
+1. A person adds `https://your-domain.example/mcp` to ChatGPT or another remote MCP client that supports OAuth and Dynamic Client Registration.
+2. The client registers a public OAuth client and starts Authorization Code + PKCE.
+3. Laravel shows the **single Blade template** asking for the user's GitVerse PAT and shows the real OAuth callback domain.
+4. The PAT is checked against the official GitVerse MCP, stored using Eloquent's `encrypted` cast, and linked to a local Laravel user. No email/password registration is required.
+5. Passport displays a consent step using **the same Blade template**, then issues a scoped access token and a rotating refresh token to the AI client.
+6. The gateway verifies the Passport token, identifies the Laravel user, loads **that user's credential**, and streams the MCP request/response to GitVerse.
 
-Two people using different AI services are isolated: a ChatGPT session cannot access the GitVerse credential associated with someone else's Claude session. No local computer is involved in the MCP exchange.
-
-The **private ChatGPT plugin** created for the developer is not automatically available to everyone. Other users can add the same published MCP URL as their own custom remote MCP connection in services that allow it.
+The AI client never receives the actual GitVerse PAT. Each user's Passport tokens are scoped to their Laravel user and personal GitVerse credentials.
 
 ## Setup
 
-- Install PHP 8.5, Composer, PostgreSQL 17 (the OAuth UUID defaults use `gen_random_uuid()`), and HTTPS with a trusted reverse proxy.
-- `composer install --no-dev --optimize-autoloader`
-- Copy `.env.example` to `.env`, set `APP_URL=https://your-domain.example` (exact public HTTPS origin, no path or trailing slash), `APP_ENV=production`, and `APP_DEBUG=false`.
-- `php artisan key:generate`
-- Configure PostgreSQL credentials (Sail uses the `pgsql` hostname) and make Laravel storage writable.
-- `php artisan migrate --force`, then `php artisan optimize`. On a disposable local database created with the previous integer-key schema, `php artisan migrate:fresh` is required because editing an already-applied migration does not alter existing tables. **Never run migrate:fresh against real user data**; migrate existing data with a separate, carefully planned schema/data migration.
-- Connect `https://your-domain.example/mcp` in ChatGPT Plugins or another cloud-based remote-MCP client and select OAuth with **automatic client registration**.
-- On first connect, enter a GitVerse PAT on the authorization page. The AI client will receive only its gateway-issued access and refresh tokens.
+Requirements: PHP 8.5, Composer, PostgreSQL 17, HTTPS reverse proxy.
 
-**There is no shared `GITVERSE_TOKEN` or `GITVERSE_ALLOWED_TOKEN_SHA256` environment variable.** This is a multi-user service: each person supplies a different credential during consent.
+1. Update dependencies and **regenerate composer.lock**: `composer update laravel/passport --with-all-dependencies` (or a full `composer update`, since Passport is new and Sanctum was removed). **The lockfile included in this commit was generated before Passport was added and must be regenerated before `composer install`.** Commit the new lockfile to master.
+2. `cp .env.example .env`; set `APP_URL=https://your-domain.example`, PostgreSQL credentials, `APP_ENV=production`, `APP_DEBUG=false`.
+3. `php artisan key:generate`.
+4. `php artisan passport:keys`. Keep `storage/oauth-private.key` and `storage/oauth-public.key` private; do not commit them.
+5. `php artisan migrate --force` and `php artisan optimize`.
+6. In ChatGPT Plugins, create a custom MCP connection pointing to `https://your-domain.example/mcp` and select OAuth.
+7. Paste your personal GitVerse PAT on the connection page, then approve on the following consent screen. Test a read-only GitVerse tool first.
 
-## Security and limitations
+The project provides its own UUID-compatible Passport migrations. **Do not run `passport:install`, `install:api --passport`, or publish Passport migrations**, as that could introduce duplicate tables or migrations.
 
-- OAuth authorization code with PKCE S256, single-use 5-minute codes, one-hour access tokens, rotating 30-day refresh tokens, exact registered redirect URI matching and resource binding.
-- Registration accepts callback URLs on **HTTPS public domain names** (not localhost, IPs, userinfo or URL fragments); client registration is rate limited. Clients supply their own names: **the display name is not verified**; users must check the actual callback domain shown on the consent page.
-- User GitVerse PATs are encrypted at rest. OAuth tokens and authorization codes are only stored as SHA-256 hashes. Tokens are linked to the relevant registered client and credential.
-- External clients should provide their own token; the gateway does not maintain GitVerse accounts, perform GitVerse OAuth login or share credentials between users.
-- TLS is mandatory. Protect APP_KEY; do not log authorization headers, form token contents or request bodies. Use small-scope PATs. An exposed token can access everything its GitVerse permissions allow.
-- `php artisan gitverse:mcp-revoke` revokes **all** connections (a global emergency operation). `php artisan gitverse:mcp-prune` cleans expired rows, or schedule it using Laravel Scheduler. **Per-user account management/revocation UI is not implemented**.
-- DCR is provided for compatibility. Newer MCP clients may prefer Client ID Metadata Documents (CIMD); support for that flow is **not yet implemented**. Providers which require CIMD without DCR or manual registration will not connect.
-- **Not yet validated end-to-end** against ChatGPT or Claude Web. Before a public multi-user launch, perform an OAuth security review, tests with actual cloud clients, traffic limits, failure recovery and a revocation workflow. The code should currently be regarded as an MVP, not as an audited identity service.
+## Migrating from the prototype
 
-## Routes
+The migration `2026_11_16_000001_replace_custom_oauth_with_passport.php` deliberately deletes prototype OAuth clients, authorization codes, and tokens. Users must reconnect. Existing encrypted GitVerse credentials are retained and linked to local Eloquent users when the PAT is entered again. Do not apply this migration without a backup if the prototype contains important data.
+
+For disposable local databases only, `php artisan migrate:fresh` is also acceptable. Never reset a production database with real users.
+
+## Security and compatibility
+
+- Passport uses signed access tokens, refresh token rotation, OAuth client records, PKCE and consent. The MCP adapter enforces a single resource URI (`APP_URL/mcp`) for authorization and token requests. The gateway accepts only tokens issued by its Passport server and scoped to `gitverse:access`.
+- DCR accepts only public HTTPS callback domains, rejects IPs, local hosts, URL fragments and userinfo; Passport validates the exact registered callback. The client name is **unverified**, so the form displays the actual callback host.
+- The login is one-time and tied to the pending OAuth authorization URL. OAuth approval logs out the browser session, preventing an unrelated next authorization from inheriting the previous user.
+- GitVerse PATs are encrypted at rest with the Laravel application key. Use least-privilege PATs; guard the app key and OAuth signing keys.
+- `php artisan gitverse:mcp-revoke` invalidates all Passport tokens and deletes the stored PATs. `php artisan gitverse:mcp-prune` uses Passport's native purge operation.
+- The only web interface is `resources/views/gitverse-connect.blade.php`, reused for PAT entry and consent. No Livewire or Nuxt UI bundle is necessary.
+- **CIMD (Client ID Metadata Documents) is not implemented**; DCR is supported. Clients requiring CIMD-only registration won't connect without additional work.
+- **Production warning:** This is an unverified security-sensitive migration. Test the full OAuth browser round trip, token exchange, token refresh and SSE with a real cloud client on HTTPS before exposing it to the public.
+
+## Endpoints
 
 - `GET /.well-known/oauth-protected-resource`
+- `GET /.well-known/oauth-protected-resource/mcp`
 - `GET /.well-known/oauth-authorization-server`
-- `POST /oauth/register`
-- `GET, POST /oauth/authorize` (Blade authorization form)
-- `POST /oauth/token`
-- `GET, POST, DELETE /mcp` (Streamable HTTP proxy with SSE support)
+- `POST /oauth/register` (DCR)
+- `GET, POST /oauth/authorize` (Passport with gateway verification/consent)
+- `POST /oauth/token` (Passport)
+- `GET, POST /connect` (PAT login/verification)
+- `GET, POST, DELETE /mcp` (Streamable HTTP proxy)
 
-## Testing
+## Tests
 
-`php artisan test --compact --filter=Mcp` (run against an isolated PostgreSQL test database; do not use your production database).
+Use a **separate PostgreSQL test database**, then run:
 
-The repository deliberately has no `.github` CI configuration.
+`php artisan test --compact --filter=Mcp`
 
-References: [MCP authorization and client registration](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization), [ChatGPT custom MCP](https://developers.openai.com/api/docs/guides/custom-mcp-server), [Claude remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp), [GitVerse MCP](https://gitverse.ru/docs/ai/mcp/).
+No `.github` CI is introduced.
+
+Relevant documentation: [Laravel Passport 13](https://laravel.com/docs/13.x/passport), [MCP OAuth authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization), [GitVerse MCP](https://gitverse.ru/docs/ai/mcp/).

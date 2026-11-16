@@ -10,7 +10,7 @@
         * { box-sizing: border-box; }
         body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #101114; color: #f1f2f4; }
         main { width: 100%; max-width: 420px; border: 1px solid #34353b; border-radius: 18px; background: #1c1d21; padding: 32px; box-shadow: 0 12px 40px #0004; }
-        .mark { width: 44px; height: 44px; border: 1px solid #4e5160; background: #2a2c34; display: grid; place-items: center; border-radius: 12px; font-weight: 800; letter-spacing: -1px; }
+        .mark { width: 44px; height: 44px; border: 1px solid #4e5160; background: #2a2c34; display: grid; place-items: center; border-radius: 12px; font-weight: 800; }
         h1 { margin: 20px 0 8px; font-size: 24px; letter-spacing: -.5px; }
         p { color: #acafb8; font-size: 14px; line-height: 1.6; margin: 0 0 22px; }
         .client { color: #e1e3e8; font-weight: 600; overflow-wrap: anywhere; }
@@ -21,28 +21,43 @@
         button:hover { background: #dfe2eb; }
         .error { color: #ffaaa7; font-size: 13px; margin-top: 8px; }
         small { color: #979ba6; display: block; font-size: 12px; line-height: 1.6; margin-top: 24px; }
-        a { color: #bac2ff; }
     </style>
 </head>
 <body>
 <main>
+    @php
+        $consent = isset($client, $authToken);
+        $displayName = $consent ? $client->name : $clientName;
+        $redirectHost = $consent
+            ? parse_url($request->query('redirect_uri'), PHP_URL_HOST)
+            : $callbackHost;
+    @endphp
     <div class="mark" aria-hidden="true">GV</div>
     <h1>Подключить GitVerse</h1>
-    <p>AI-клиент с именем <span class="client">{{ $clientName }}</span> запрашивает доступ к твоему GitVerse через этот MCP-сервер. Введи собственный персональный токен.</p>
-    <p>После подтверждения доступ получит клиент с адресом возврата <span class="client">{{ $callbackHost }}</span>. Название клиента не проверено: продолжай только если доверяешь этому адресу.</p>
+    <p>AI-клиент <span class="client">{{ $displayName }}</span> запрашивает доступ к твоим репозиториям GitVerse.</p>
+    <p>Адрес возврата: <span class="client">{{ $redirectHost }}</span>. Имя клиента задаётся самим клиентом и не является подтверждением его подлинности.</p>
 
-    <form method="post" action="{{ url('/oauth/authorize') }}" autocomplete="off">
-        @csrf
-        <label for="gitverse_token">Персональный токен GitVerse</label>
-        <input id="gitverse_token" name="gitverse_token" type="password" required autofocus
-               autocomplete="off" spellcheck="false" minlength="12" aria-describedby="privacy-note">
-        @error('gitverse_token')
-            <div class="error" role="alert">{{ $message }}</div>
-        @enderror
-        <button type="submit">Разрешить подключение</button>
-    </form>
+    @if ($consent)
+        <p>Токен GitVerse уже проверен. Подтверди предоставление доступа к GitVerse MCP выбранному AI-клиенту.</p>
+        <form method="post" action="{{ url('/oauth/authorize') }}">
+            @csrf
+            <input type="hidden" name="auth_token" value="{{ $authToken }}">
+            <button type="submit">Разрешить доступ</button>
+        </form>
+    @else
+        <form method="post" action="{{ url('/connect') }}" autocomplete="off">
+            @csrf
+            <label for="gitverse_token">Персональный токен GitVerse</label>
+            <input id="gitverse_token" name="gitverse_token" type="password" required autofocus
+                   autocomplete="off" spellcheck="false" minlength="12">
+            @error('gitverse_token')
+                <div class="error" role="alert">{{ $message }}</div>
+            @enderror
+            <button type="submit">Проверить токен</button>
+        </form>
+    @endif
 
-    <small id="privacy-note">Токен проверяется через официальный GitVerse MCP и сохраняется в зашифрованном виде на твоём сервере. AI-клиент получает отдельный OAuth-токен прокси, а не токен GitVerse. Права доступа ограничены правами токена GitVerse.</small>
+    <small>Твой токен GitVerse сохраняется зашифрованным на сервере и не передаётся AI-клиенту. OAuth-токены выдаёт Laravel Passport. Предоставляй доступ только доверенным адресам.</small>
 </main>
 </body>
 </html>

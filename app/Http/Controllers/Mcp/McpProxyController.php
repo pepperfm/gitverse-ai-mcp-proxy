@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Mcp;
 
+use App\Models\User;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -15,39 +15,30 @@ final class McpProxyController
 {
     public function handle(Request $request): Response
     {
-        if (
-            $request->hasHeader('Origin')
-            && !
-            in_array($request->header('Origin'), config('gitverse.allowed_origins', []), true)
-        ) {
+        if ($request->hasHeader('Origin')
+            && ! in_array($request->header('Origin'), config('gitverse.allowed_origins', []), true)) {
             return response('Origin not allowed', 403);
         }
 
-        $bearer = $request->bearerToken();
-        $row = $bearer ? DB::table('mcp_oauth_tokens')
-            ->join('mcp_gitverse_credentials', 'mcp_gitverse_credentials.id', '=', 'mcp_oauth_tokens.credential_id')
-            ->where('mcp_oauth_tokens.token_hash', hash('sha256', $bearer))
-            ->where('mcp_oauth_tokens.kind', 'access')
-            ->where('mcp_oauth_tokens.resource', OAuthController::resource())
-            ->where('mcp_oauth_tokens.scope', config('gitverse.scope'))
-            ->whereNull('mcp_oauth_tokens.revoked_at')
-            ->where('mcp_oauth_tokens.expires_at', '>', now())
-            ->select('mcp_gitverse_credentials.encrypted_token')
-            ->first() : null;
+        /** @var User|null $user */
+        $user = Auth::guard('api')->user();
+        $credential = $user?->gitverseCredential;
 
-        if (!$row) {
-            return response()
-                ->json(['error' => 'unauthorized'], 401)
-                ->header('WWW-Authenticate', 'Bearer resource_metadata="' . OAuthController::base() . '/.well-known/oauth-protected-resource", scope="' . config('gitverse.scope') . '"');
+        if (! $user || ! $user->tokenCan((string) config('gitverse.scope')) || ! $credential) {
+            return response()->json(['error' => 'unauthorized'], 401)->header(
+                'WWW-Authenticate',
+                'Bearer resource_metadata="'.OAuthMetadataController::base().'/.well-known/oauth-protected-resource", scope="'.config('gitverse.scope').'"',
+            );
         }
 
-        $rawBody = $request->getContent();
-        if (strlen($rawBody) > 2 * 1024 * 1024) {
+        $body = $request->getContent();
+
+        if (strlen($body) > 2 * 1024 * 1024) {
             return response('MCP request too large', 413);
         }
 
         $headers = [
-            'Authorization' => 'Bearer '.Crypt::decryptString($row->encrypted_token),
+            'Authorization' => 'Bearer '.$credential->encrypted_token,
             'Accept' => $request->header('Accept', 'application/json, text/event-stream'),
         ];
 
@@ -58,14 +49,16 @@ final class McpProxyController
         }
 
         try {
-            $options = $request->isMethod('post') ? ['body' => $rawBody] : [];
-
             $upstream = Http::withHeaders($headers)->withOptions([
                 'stream' => true,
                 'allow_redirects' => false,
                 'connect_timeout' => 10,
                 'timeout' => 0,
-            ])->send($request->method(), (string) config('gitverse.endpoint'), $options);
+            ])->send(
+                $request->method(),
+                (string) config('gitverse.endpoint'),
+                $request->isMethod('post') ? ['body' => $body] : [],
+            );
         } catch (ConnectionException $exception) {
             report($exception);
 
@@ -90,12 +83,12 @@ final class McpProxyController
             }
         }
 
-        $body = $upstream->toPsrResponse()->getBody();
+        $stream = $upstream->toPsrResponse()->getBody();
 
-        return response()->stream(static function () use ($body): void {
+        return response()->stream(static function () use ($stream): void {
             try {
-                while (!$body->eof() && connection_aborted() === 0) {
-                    echo $body->read(8192);
+                while (! $stream->eof() && connection_aborted() === 0) {
+                    echo $stream->read(8192);
 
                     if (ob_get_level() > 0) {
                         ob_flush();
@@ -104,7 +97,7 @@ final class McpProxyController
                     flush();
                 }
             } finally {
-                $body->close();
+                $stream->close();
             }
         }, $upstream->status(), $responseHeaders);
     }

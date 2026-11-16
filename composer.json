@@ -1,21 +1,22 @@
 {
-    "name": "pepperfm/laravel-starter-kit",
+    "name": "pepperfm/gitverse-ai-mcp-proxy",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Remote GitVerse MCP gateway using Laravel Passport and Eloquent",
     "keywords": [
         "laravel",
-        "framework",
-        "starter"
+        "passport",
+        "mcp",
+        "gitverse"
     ],
     "license": "MIT",
     "require": {
-        "php": "^8.5",
         "laravel/framework": "^13.0",
+        "laravel/passport": "^13.11",
         "laravel/prompts": "^0.3.5",
-        "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "pepperfm/api-responder-for-laravel": "^4.0",
-        "pepperfm/swagger-nuxt-ui-for-laravel": "^0.1.1"
+        "pepperfm/swagger-nuxt-ui-for-laravel": "^0.1.1",
+        "php": "^8.5"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

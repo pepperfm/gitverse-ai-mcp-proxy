@@ -11,16 +11,16 @@ class WithMiddleware
 {
     public function __invoke(Middleware $middleware): void
     {
-        // Guests must never bounce back into the protected panel.
-        // Other, non-panel auth routes keep their own login destination.
         $middleware->redirectGuestsTo(
-            static fn(Request $request): string => $request->is('panel', 'panel/*')
-                ? '/panel/login'
-                : '/login',
+            static fn (Request $request): string => match (true) {
+                $request->is('panel', 'panel/*') => '/panel/login',
+                $request->is('oauth/authorize') => '/connect',
+                default => '/login',
+            },
         );
 
         $middleware->redirectUsersTo(
-            static fn(Request $request): string => $request->is('panel', 'panel/*')
+            static fn (Request $request): string => $request->is('panel', 'panel/*')
                 ? '/panel'
                 : '/dashboard',
         );

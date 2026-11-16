@@ -254,3 +254,79 @@ it('isolates separate AI clients and users by their GitVerse credentials', funct
     Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer first-user-personal-token'));
     Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer second-user-personal-token'));
 });
+
+
+it('uses Passport for the complete authorization code and PKCE exchange', function (): void {
+    $this->artisan('passport:keys', ['--force' => true])->assertExitCode(0);
+
+    $clientId = registerGatewayClient($this);
+    $redirectUri = 'https://chatgpt.com/connector_platform_oauth_redirect';
+    $verifier = str_repeat('A', 64);
+    $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+
+    $query = http_build_query([
+        'client_id' => $clientId,
+        'redirect_uri' => $redirectUri,
+        'response_type' => 'code',
+        'scope' => 'gitverse:access',
+        'state' => 'oauth-integration-test',
+        'resource' => 'https://proxy.example.test/mcp',
+        'code_challenge_method' => 'S256',
+        'code_challenge' => $challenge,
+    ]);
+
+    $authorizeUrl = 'https://proxy.example.test/oauth/authorize?'.$query;
+
+    $this->get($authorizeUrl)->assertRedirect('https://proxy.example.test/connect');
+
+    Http::fake([
+        'https://mcp.gitverse.ru*' => Http::response([
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'result' => ['protocolVersion' => '2025-03-26'],
+        ], 200),
+    ]);
+
+    $this->get('https://proxy.example.test/connect')->assertOk();
+    $this->post('https://proxy.example.test/connect', [
+        'gitverse_token' => 'integration-gitverse-token',
+    ])->assertRedirect($authorizeUrl);
+
+    $consent = $this->get($authorizeUrl)->assertOk();
+    $this->assertAuthenticated('web');
+
+    preg_match('/name="auth_token" value="([^"]+)"/', $consent->getContent(), $matches);
+    expect($matches)->toHaveCount(2);
+
+    $approved = $this->post('https://proxy.example.test/oauth/authorize', [
+        'auth_token' => $matches[1],
+    ])->assertRedirect();
+
+    $callback = $approved->headers->get('Location');
+    expect($callback)->toStartWith($redirectUri);
+
+    parse_str((string) parse_url($callback, PHP_URL_QUERY), $params);
+    expect($params['state'])->toBe('oauth-integration-test');
+
+    $issued = $this->post('https://proxy.example.test/oauth/token', [
+        'client_id' => $clientId,
+        'grant_type' => 'authorization_code',
+        'code' => $params['code'],
+        'redirect_uri' => $redirectUri,
+        'code_verifier' => $verifier,
+        'resource' => 'https://proxy.example.test/mcp',
+    ])->assertOk();
+
+    expect($issued->json('access_token'))->toBeString()
+        ->and($issued->json('refresh_token'))->toBeString()
+        ->and($issued->json('access_token'))->not->toBe('integration-gitverse-token');
+
+    $this->post('https://proxy.example.test/oauth/token', [
+        'client_id' => $clientId,
+        'grant_type' => 'authorization_code',
+        'code' => $params['code'],
+        'redirect_uri' => $redirectUri,
+        'code_verifier' => $verifier,
+        'resource' => 'https://proxy.example.test/mcp',
+    ])->assertStatus(400);
+});
