@@ -48,7 +48,7 @@ function beginMcpAuthorization($testCase): array
     ]))->assertOk()->assertSee('Подключить GitVerse');
 
     Http::fake([
-        'mcp.gitverse.ru' => Http::response(['jsonrpc' => '2.0', 'result' => ['protocolVersion' => '2025-03-26']], 200),
+        'https://mcp.gitverse.ru*' => Http::response(['jsonrpc' => '2.0', 'result' => ['protocolVersion' => '2025-03-26']], 200),
     ]);
 
     $response = $testCase->post('/oauth/authorize', [
@@ -152,7 +152,7 @@ it('proxies an authenticated mcp call without forwarding chatgpt access token to
     $tokens = exchangeMcpCode($this, $authorization)->assertOk()->json();
 
     Http::fake([
-        'mcp.gitverse.ru' => Http::response([
+        'https://mcp.gitverse.ru*' => Http::response([
             'jsonrpc' => '2.0',
             'id' => 2,
             'result' => ['tools' => []],
