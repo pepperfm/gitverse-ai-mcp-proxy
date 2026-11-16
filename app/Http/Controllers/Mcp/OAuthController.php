@@ -347,7 +347,7 @@ final class OAuthController
         return $issued ? $this->tokenResponse($issued) : $this->error('invalid_grant');
     }
 
-    private function issuePair(string $clientId, int $credentialId, string $scope): array
+    private function issuePair(string $clientId, string $credentialId, string $scope): array
     {
         $access = str()->random(80);
         $refresh = str()->random(80);
