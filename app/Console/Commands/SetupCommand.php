@@ -1,0 +1,643 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Process;
+use App\Setup\AdminPanelFrontendInstaller;
+use App\Setup\StarterKitInstallationSummary;
+use App\Setup\StarterKitPackageRegistry;
+use App\Setup\StarterKitPreset;
+
+use function Laravel\Prompts\{confirm, info, multiselect, note, select, text, warning};
+
+final class SetupCommand extends Command
+{
+    private const string COMMAND_RUNTIME_AUTO = 'auto';
+
+    private const string COMMAND_RUNTIME_HOST = 'host';
+
+    private const string COMMAND_RUNTIME_SAIL = 'sail';
+
+    protected $signature = 'starter:setup
+        {--no-post : Skip running post-install artisan commands}
+        {--preset= : Install a predefined package set: api, admin, observability, full}';
+
+    protected $description = 'Interactive setup for the PepperFM Laravel starter kit.';
+
+    /**
+     * @var array<int, string>
+     */
+    protected array $installedPackages = [];
+
+    /**
+     * @var array<int, string>
+     */
+    protected array $installedDevPackages = [];
+
+    protected bool $adminFrontendRequested = false;
+
+    protected ?StarterKitPreset $selectedPreset = null;
+
+    protected string $commandRuntime = self::COMMAND_RUNTIME_AUTO;
+
+    protected ?bool $sailProxyAvailable = null;
+
+    public function handle(AdminPanelFrontendInstaller $adminPanelFrontendInstaller): int
+    {
+        info('🔧 Laravel Starter Kit: Optional Setup');
+
+        $this->configureEnvironment();
+        $this->askCommandRuntime();
+
+        if (!$this->applyPresetFromOption()) {
+            return self::FAILURE;
+        }
+        if ($this->selectedPreset === null) {
+            $this->askAdminFrontend();
+            $this->askApiSupport();
+            $this->askExtras();
+        }
+        if ($this->installedPackages === [] && $this->installedDevPackages === []) {
+            note('⚠️ No packages selected for installation.');
+
+            return self::SUCCESS;
+        }
+        if (!$this->confirmInstallationSummary()) {
+            note('Setup cancelled before package installation.');
+
+            return self::SUCCESS;
+        }
+        if (!$this->prepareCommandRuntime()) {
+            return self::FAILURE;
+        }
+
+        $packagesInstalled = $this->requirePackages($this->installedPackages, dev: false);
+        $devPackagesInstalled = $this->requirePackages($this->installedDevPackages, dev: true);
+
+        if (!$packagesInstalled || !$devPackagesInstalled) {
+            warning('⚠ Setup stopped because package installation failed.');
+
+            return self::FAILURE;
+        }
+        if ($this->adminFrontendRequested) {
+            $adminFrontendInstalled = $adminPanelFrontendInstaller->install(
+                usingSail: $this->usingSail(),
+                sailCommand: $this->getSailCommand(),
+            );
+
+            if (!$adminFrontendInstalled) {
+                warning('⚠ Setup stopped because admin frontend installation failed.');
+
+                return self::FAILURE;
+            }
+        }
+        if (!$this->option('no-post') && !$this->runSelectedPostInstallCommands()) {
+            warning('⚠ Setup stopped because a post-install command failed.');
+
+            return self::FAILURE;
+        }
+
+        note('✅ Setup complete.');
+
+        return self::SUCCESS;
+    }
+
+    protected function applyPresetFromOption(): bool
+    {
+        $inputPreset = $this->option('preset');
+        if (!is_string($inputPreset) || trim($inputPreset) === '') {
+            return true;
+        }
+
+        $preset = $inputPreset
+                |> trim(...)
+                |> strtolower(...)
+                |> StarterKitPreset::tryFrom(...);
+        if (!$preset instanceof StarterKitPreset) {
+            warning('⚠ Unknown preset. Available presets: ' . implode(', ', StarterKitPreset::values()) . '.');
+
+            return false;
+        }
+
+        info("Applying $preset->value preset.");
+
+        $this->selectedPreset = $preset;
+        $this->adminFrontendRequested = $preset->installsAdminFrontend();
+        array_push($this->installedPackages, ...$preset->packages());
+        array_push($this->installedDevPackages, ...$preset->devPackages());
+
+        return true;
+    }
+
+    protected function askAdminFrontend(): void
+    {
+        $this->adminFrontendRequested = confirm(
+            label: 'Install custom admin frontend foundation?',
+            default: false,
+            hint: 'Publishes the Inertia + Vue + Nuxt UI panel preset.',
+        );
+
+        if (!$this->adminFrontendRequested) {
+            note('⚠️ Skipping admin frontend foundation.');
+
+            return;
+        }
+
+        $this->installedPackages[] = 'inertiajs/inertia-laravel:^3.0';
+        $this->installedPackages[] = 'tightenco/ziggy:^2.5';
+    }
+
+    protected function askApiSupport(): void
+    {
+        $apiNeeded = confirm('Will this app be used as an API?', default: false);
+        if (!$apiNeeded) {
+            note('⚠️ Skipping API support installation.');
+
+            return;
+        }
+
+        info('API support: installing Sanctum and Swagger Nuxt UI documentation.');
+
+        $this->installedPackages[] = 'laravel/sanctum';
+        $this->installedPackages[] = 'pepperfm/swagger-nuxt-ui-for-laravel';
+
+        $apiChoice = select(
+            label: 'Which additional API helper package would you like to install?',
+            options: [
+                'spatie/laravel-data' => '📦 Laravel Data — data objects / DTOs',
+                'pepperfm/api-responder-for-laravel' => '📦 API Responder — lightweight response helpers',
+            ],
+            default: 'spatie/laravel-data',
+        );
+
+        $this->installedPackages[] = (string) $apiChoice;
+    }
+
+    protected function askExtras(): void
+    {
+        /** @var array<int, string> $otherChoices */
+        $otherChoices = multiselect(
+            label: 'Select additional features to install',
+            options: [
+                'opcodesio/log-viewer' => '📋 Log Viewer — browser UI for Laravel logs',
+                'laravel/horizon' => '📈 Horizon — Redis queue dashboard',
+                'laravel/telescope' => '🔭 Telescope — local debugging dashboard [dev]',
+                'laravel/pulse' => '💓 Pulse — application performance and usage metrics',
+                'defstudio/telegraph' => '🤖 Telegram Bot Integration (Telegraph)',
+                'spatie/laravel-ray' => '🛠 Ray Debugger (requires license) [dev]',
+                'spatie/laravel-medialibrary' => '🖼  Spatie MediaLibrary (file uploads)',
+                'spatie/laravel-permission' => '🔐 Spatie Permissions (roles & permissions)',
+            ],
+            scroll: 8,
+        );
+
+        foreach ($otherChoices as $selected) {
+            if (StarterKitPackageRegistry::isDevPackage($selected)) {
+                $this->installedDevPackages[] = $selected;
+
+                continue;
+            }
+
+            $this->installedPackages[] = $selected;
+        }
+    }
+
+    /**
+     * Run composer require for specified packages.
+     *
+     * @param array<int, string> $packages
+     * @param bool $dev
+     */
+    protected function requirePackages(array $packages, bool $dev): bool
+    {
+        $packages = StarterKitPackageRegistry::normalized($packages);
+        if ($packages === []) {
+            return true;
+        }
+
+        $isSail = $this->usingSail();
+
+        $command = $isSail
+            ? [$this->getSailCommand(), 'composer', 'require']
+            : ['composer', 'require'];
+
+        // Important: allow updating locked transitive dependencies (helps when upgrading major versions).
+        $command[] = '--with-all-dependencies';
+
+        if ($dev) {
+            $command[] = '--dev';
+        }
+
+        $command = array_merge($command, $packages);
+
+        info('→ Running: ' . implode(' ', $command));
+
+        $process = Process::path(base_path())
+            ->timeout(600)
+            ->run($command);
+
+        if ($process->successful()) {
+            $this->output->write($process->output());
+
+            return true;
+        }
+
+        warning('⚠ Failed to install: ' . implode(', ', $packages));
+        $this->output->write($process->errorOutput());
+
+        return false;
+    }
+
+    protected function confirmInstallationSummary(): bool
+    {
+        return new StarterKitInstallationSummary(
+            preset: $this->selectedPreset,
+            commandRuntime: $this->commandRuntime,
+            adminFrontendRequested: $this->adminFrontendRequested,
+            packages: StarterKitPackageRegistry::normalized($this->installedPackages),
+            devPackages: StarterKitPackageRegistry::normalized($this->installedDevPackages),
+            skipPostInstall: (bool) $this->option('no-post'),
+            postInstallCommands: StarterKitPackageRegistry::selectedPostInstallCommands(
+                packages: $this->installedPackages,
+                devPackages: $this->installedDevPackages,
+                usingSail: $this->usingSail(),
+            ),
+        )->confirm($this);
+    }
+
+    protected function runSelectedPostInstallCommands(): bool
+    {
+        $all = StarterKitPackageRegistry::normalized([...$this->installedPackages, ...$this->installedDevPackages]);
+        $successful = true;
+
+        foreach ($all as $packageSpec) {
+            $package = StarterKitPackageRegistry::packageName($packageSpec);
+            $successful = $this->runPostInstallCommands($package) && $successful;
+        }
+
+        return $successful;
+    }
+
+    /*
+     * Run package-specific post-install artisan commands.
+     */
+    protected function runPostInstallCommands(string $package): bool
+    {
+        $commands = $this->postInstallCommandsForPackage($package);
+        if ($commands === []) {
+            return true;
+        }
+
+        $successful = true;
+
+        foreach ($commands as $cmd) {
+            $isSail = $this->usingSail();
+
+            $command = $isSail
+                ? array_merge([$this->getSailCommand(), 'php', 'artisan'], $cmd)
+                : array_merge(['php', 'artisan'], $cmd);
+
+            info("→ Running post-install command for $package: " . implode(' ', $command));
+
+            $process = Process::path(base_path())
+                ->timeout(600)
+                ->run($command);
+            if ($process->successful()) {
+                $this->output->write($process->output());
+
+                continue;
+            }
+
+            warning("⚠ Post-install command failed for $package: " . implode(' ', $command));
+            $this->output->write($process->errorOutput());
+            $successful = false;
+        }
+
+        if ($package === 'laravel/sanctum' && $successful) {
+            return $this->ensureApiRoutesRegistered() && $this->ensureUserModelUsesSanctumTokens();
+        }
+
+        return $successful;
+    }
+
+    /**
+     * @param string $package
+     *
+     * @return array<int, array<int, string>>
+     */
+    protected function postInstallCommandsForPackage(string $package): array
+    {
+        return StarterKitPackageRegistry::postInstallCommandsFor($package, usingSail: $this->usingSail());
+    }
+
+    protected function ensureUserModelUsesSanctumTokens(): bool
+    {
+        $userModelPath = app_path('Models/User.php');
+
+        if (!file_exists($userModelPath)) {
+            warning('⚠ Unable to add Sanctum HasApiTokens trait because app/Models/User.php was not found.');
+
+            return false;
+        }
+
+        $content = (string) file_get_contents($userModelPath);
+        $updated = $this->addSanctumTraitToUserModel($content);
+
+        if ($updated === $content) {
+            return true;
+        }
+
+        file_put_contents($userModelPath, $updated);
+
+        info('→ Added Laravel\\Sanctum\\HasApiTokens to app/Models/User.php');
+
+        return true;
+    }
+
+    protected function ensureApiRoutesRegistered(): bool
+    {
+        $bootstrapPath = base_path('bootstrap/app.php');
+
+        if (!file_exists($bootstrapPath)) {
+            warning('⚠ Unable to register API routes because bootstrap/app.php was not found.');
+
+            return false;
+        }
+
+        $content = (string) file_get_contents($bootstrapPath);
+        $updated = $this->addApiRoutesToBootstrap($content);
+
+        if ($updated === $content) {
+            return true;
+        }
+
+        file_put_contents($bootstrapPath, $updated);
+
+        info('→ Registered routes/api.php in bootstrap/app.php');
+
+        return true;
+    }
+
+    protected function addApiRoutesToBootstrap(string $content): string
+    {
+        if (str_contains($content, "api: __DIR__ . '/../routes/api.php'") || str_contains($content, "api: __DIR__.'/../routes/api.php'")) {
+            return $content;
+        }
+
+        return preg_replace(
+            "/(web:\s*__DIR__\s*\.\s*'\/\.\.\/routes\/web\.php',\R)/",
+            "$1        api: __DIR__ . '/../routes/api.php'," . PHP_EOL,
+            $content,
+            1
+        );
+    }
+
+    protected function addSanctumTraitToUserModel(string $content): string
+    {
+        if (!str_contains($content, 'use Laravel\\Sanctum\\HasApiTokens;')) {
+            $content = preg_replace(
+                '/^use Illuminate\\\\Notifications\\\\Notifiable;\R/m',
+                'use Illuminate\\Notifications\\Notifiable;' . PHP_EOL . 'use Laravel\\Sanctum\\HasApiTokens;' . PHP_EOL,
+                $content,
+                1
+            );
+        }
+
+        if (!preg_match('/^    use .*\\bHasApiTokens\\b.*;$/m', $content)) {
+            $content = (string) preg_replace(
+                '/^    use (.*\\bHasFactory\\b.*);$/m',
+                '    use HasApiTokens, $1;',
+                $content,
+                1
+            );
+        }
+
+        return $content;
+    }
+
+    protected function configureEnvironment(): void
+    {
+        $envPath = base_path('.env');
+        $envExamplePath = base_path('.env.example');
+
+        if (!file_exists($envPath) && file_exists($envExamplePath)) {
+            copy($envExamplePath, $envPath);
+        }
+        if (!file_exists($envPath)) {
+            warning('⚠️ .env file not found, skipping environment configuration.');
+
+            return;
+        }
+
+        $autoDetect = confirm(
+            label: 'Auto-detect your UID and GID for WWWUSER/WWWGROUP?',
+        );
+
+        $uidDefault = function_exists('getmyuid') ? (string) getmyuid() : '1000';
+        $gidDefault = function_exists('getmygid') ? (string) getmygid() : '1000';
+
+        $uid = $autoDetect ? $uidDefault : text('Enter your user ID (UID)', default: $uidDefault);
+        $gid = $autoDetect ? $gidDefault : text('Enter your group ID (GID)', default: $gidDefault);
+
+        $envContent = (string) file_get_contents($envPath);
+
+        $database = $this->envValue($envContent, 'DB_DATABASE', ['laravel', 'laravel_template']) ?? $this->defaultDatabaseName();
+        $databaseUsername = $this->envValue($envContent, 'DB_USERNAME', ['root', 'laravel_template']) ?? $database;
+        $databasePassword = $this->envValue($envContent, 'DB_PASSWORD', ['laravel_template']) ?? $database;
+
+        $envContent = $this->replaceOrAppendEnv($envContent, 'WWWUSER', $uid);
+        $envContent = $this->replaceOrAppendEnv($envContent, 'WWWGROUP', $gid);
+        $envContent = $this->replaceOrAppendEnv($envContent, 'DB_CONNECTION', 'pgsql');
+        $envContent = $this->replaceOrAppendEnv($envContent, 'DB_HOST', 'pgsql');
+        $envContent = $this->replaceOrAppendEnv($envContent, 'DB_PORT', '5432');
+        $envContent = $this->replaceOrAppendEnv($envContent, 'DB_DATABASE', $database);
+        $envContent = $this->replaceOrAppendEnv($envContent, 'DB_USERNAME', $databaseUsername);
+        $envContent = $this->replaceOrAppendEnv($envContent, 'DB_PASSWORD', $databasePassword);
+
+        file_put_contents($envPath, $envContent);
+
+        info("🔐 Updated .env with WWWUSER=$uid, WWWGROUP=$gid and PostgreSQL credentials.");
+    }
+
+    protected function askCommandRuntime(): void
+    {
+        if ($this->runningInsideSail()) {
+            $this->commandRuntime = self::COMMAND_RUNTIME_HOST;
+
+            note('🐳 Running inside Sail; install commands will run directly in this container.');
+
+            return;
+        }
+
+        $this->commandRuntime = (string) select(
+            label: 'Where should setup run install commands?',
+            options: [
+                self::COMMAND_RUNTIME_HOST => 'Host machine',
+                self::COMMAND_RUNTIME_SAIL => 'Laravel Sail container',
+                self::COMMAND_RUNTIME_AUTO => 'Auto-detect running Sail',
+            ],
+            default: $this->sailAppContainerRunning() ? self::COMMAND_RUNTIME_SAIL : self::COMMAND_RUNTIME_HOST,
+            hint: 'Controls composer, artisan and frontend dependency commands.',
+        );
+
+        $this->sailProxyAvailable = null;
+    }
+
+    protected function prepareCommandRuntime(): bool
+    {
+        if ($this->commandRuntime !== self::COMMAND_RUNTIME_SAIL || $this->runningInsideSail()) {
+            return true;
+        }
+        if (!$this->hasSailCommand()) {
+            warning('⚠ Sail was selected, but the sail executable was not found.');
+
+            return false;
+        }
+        if ($this->sailAppContainerRunning()) {
+            return true;
+        }
+
+        $shouldStartSail = confirm(
+            label: 'Sail is not running. Start Sail containers now?',
+            hint: 'Required when setup commands should run through Sail.',
+        );
+        if (!$shouldStartSail) {
+            warning('⚠ Setup stopped because Sail was selected but is not running.');
+
+            return false;
+        }
+
+        $command = [$this->getSailCommand(), 'up', '-d', '--build'];
+
+        info('→ Running: ' . implode(' ', $command));
+
+        $process = Process::path(base_path())
+            ->timeout(1200)
+            ->run($command);
+        if (!$process->successful()) {
+            warning('⚠ Failed to start Sail containers.');
+            $this->output->write($process->errorOutput());
+
+            return false;
+        }
+
+        $this->output->write($process->output());
+        $this->sailProxyAvailable = null;
+
+        if ($this->sailAppContainerRunning()) {
+            return true;
+        }
+
+        warning('⚠ Sail containers were started, but the app service is not running.');
+
+        return false;
+    }
+
+    protected function replaceOrAppendEnv(string $content, string $key, string $value): string
+    {
+        $pattern = '/^\s*#?\s*' . preg_quote($key, '/') . '=.*/m';
+        if (preg_match($pattern, $content) === 1) {
+            return (string) preg_replace($pattern, "$key=$value", $content);
+        }
+
+        $content = rtrim($content) . PHP_EOL;
+
+        return $content . "$key=$value" . PHP_EOL;
+    }
+
+    /**
+     * @param array<int, string> $placeholderValues
+     * @param string $content
+     * @param string $key
+     */
+    protected function envValue(string $content, string $key, array $placeholderValues = []): ?string
+    {
+        $pattern = '/^\s*#?\s*' . preg_quote($key, '/') . '=(.*)$/m';
+        if (preg_match($pattern, $content, $matches) !== 1) {
+            return null;
+        }
+
+        $value = trim($matches[1]);
+        $value = trim($value, "\"'");
+        if ($value === '' || strtolower($value) === 'null') {
+            return null;
+        }
+
+        if (in_array(strtolower($value), array_map('strtolower', $placeholderValues), true)) {
+            return null;
+        }
+
+        return $value;
+    }
+
+    protected function defaultDatabaseName(): string
+    {
+        $name = basename(base_path());
+        $name = preg_replace('/\W/', '_', $name) ?: 'laravel';
+
+        return strtolower(trim($name, '_')) ?: 'laravel';
+    }
+
+    protected function usingSail(): bool
+    {
+        if ($this->sailProxyAvailable !== null) {
+            return $this->sailProxyAvailable;
+        }
+        if ($this->runningInsideSail() || !$this->hasSailCommand()) {
+            return $this->sailProxyAvailable = false;
+        }
+        if ($this->commandRuntime === self::COMMAND_RUNTIME_HOST) {
+            return $this->sailProxyAvailable = false;
+        }
+        if ($this->commandRuntime === self::COMMAND_RUNTIME_SAIL) {
+            return $this->sailProxyAvailable = $this->sailAppContainerRunning();
+        }
+
+        return $this->sailProxyAvailable = $this->sailAppContainerRunning();
+    }
+
+    protected function sailAppContainerRunning(): bool
+    {
+        if (!$this->hasSailCommand()) {
+            return false;
+        }
+
+        $process = Process::path(base_path())
+            ->timeout(10)
+            ->run(['docker', 'compose', 'ps', '--services', '--filter', 'status=running']);
+
+        if (!$process->successful()) {
+            return false;
+        }
+
+        $runningServices = explode(PHP_EOL, $process->output())
+                |> (static fn($x) => array_map('trim', $x))
+                |> array_filter(...);
+
+        return in_array('app', $runningServices, true);
+    }
+
+    protected function getSailCommand(): string
+    {
+        if (is_executable(base_path('sail'))) {
+            return './sail';
+        }
+
+        return './vendor/bin/sail';
+    }
+
+    protected function hasSailCommand(): bool
+    {
+        return is_executable(base_path('sail')) || is_executable(base_path('vendor/bin/sail'));
+    }
+
+    protected function runningInsideSail(): bool
+    {
+        $value = $_ENV['LARAVEL_SAIL'] ?? getenv('LARAVEL_SAIL');
+
+        return filter_var($value, FILTER_VALIDATE_BOOL);
+    }
+}

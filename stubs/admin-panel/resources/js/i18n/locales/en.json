@@ -1,0 +1,31 @@
+{
+  "panel": {
+    "app": {
+      "name": "Admin"
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "description": "A clean admin frontend foundation is ready."
+    },
+    "navigation": {
+      "dashboard": "Dashboard"
+    },
+    "common": {
+      "back_to_site": "Back to site",
+      "theme": {
+        "appearance": "Appearance",
+        "dark": "Dark",
+        "light": "Light"
+      }
+    },
+    "auth": {
+      "title": "Panel sign in",
+      "subtitle": "Sign in using an application account.",
+      "email": "Email",
+      "password": "Password",
+      "remember": "Remember me",
+      "submit": "Sign in",
+      "logout": "Sign out"
+    }
+  }
+}
