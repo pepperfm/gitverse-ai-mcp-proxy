@@ -36,7 +36,7 @@ For local tests use an in-memory SQLite test database and execute php artisan te
 
 DCR accepts **only** the official ChatGPT stable callback or callback-ID-specific URLs on chatgpt.com. Redirect URIs are checked again during authorization. The OAuth code expires after 5 minutes, is single-use and PKCE-bound; access tokens expire after 1 hour and refresh tokens after 30 days. OAuth token values are stored only as SHA-256 hashes. PATs are encrypted at rest with APP_KEY, and only PATs matching GITVERSE_ALLOWED_TOKEN_SHA256 can authorize or make MCP calls.
 
-Changing GITVERSE_ALLOWED_TOKEN_SHA256 invalidates existing MCP access for the old PAT. To revoke ChatGPT access immediately, revoke its linked credentials by deleting the matching rows from mcp_oauth_tokens and mcp_gitverse_credentials, or revoke the PAT in GitVerse. Rotate APP_KEY only with a migration plan: encrypted PATs would become unreadable.
+Changing GITVERSE_ALLOWED_TOKEN_SHA256 invalidates existing MCP access for the old PAT. To revoke ChatGPT access immediately run php artisan gitverse:mcp-revoke (keeps the registered OAuth clients) or revoke the PAT in GitVerse. Run php artisan schedule:run every minute via cron to prune expired codes, tokens and orphaned encrypted credentials daily, or run php artisan gitverse:mcp-prune manually. Rotate APP_KEY only with a migration plan: encrypted PATs would become unreadable.
 
 Do not log request bodies, OAuth credentials, or Authorization headers. Terminate TLS at a trusted reverse proxy, limit ingress, keep the APP_KEY safe, and consider additional firewall/IP restrictions. Configure PHP-FPM and nginx to allow long-running streaming requests; ensure nginx does not buffer SSE (the app sets X-Accel-Buffering: no).
 
