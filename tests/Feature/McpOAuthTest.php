@@ -179,8 +179,23 @@ it('completes the real Passport authorization code + PKCE flow', function (): vo
     ], 200)]);
 
     $this->get('https://proxy.example.test/connect')->assertOk();
-    $this->post('https://proxy.example.test/connect', ['gitverse_token' => 'integration-secret'])
-        ->assertRedirect($oauthUrl);
+    $redirect = $this->post('https://proxy.example.test/connect', [
+        'gitverse_token' => 'integration-secret',
+    ])->assertRedirect();
+
+    $actualUrl = (string) $redirect->headers->get('Location');
+
+    foreach ([PHP_URL_SCHEME, PHP_URL_HOST, PHP_URL_PATH] as $component) {
+        expect(parse_url($actualUrl, $component))->toBe(parse_url($oauthUrl, $component));
+    }
+
+    parse_str((string) parse_url($actualUrl, PHP_URL_QUERY), $actualQuery);
+    parse_str((string) parse_url($oauthUrl, PHP_URL_QUERY), $expectedQuery);
+
+    ksort($actualQuery);
+    ksort($expectedQuery);
+
+    expect($actualQuery)->toBe($expectedQuery);
 
     $consent = $this->get($oauthUrl)->assertOk();
     preg_match('/name="auth_token" value="([^"]+)"/', $consent->getContent(), $matches);
