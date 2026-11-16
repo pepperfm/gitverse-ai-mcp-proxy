@@ -19,12 +19,12 @@ The **private ChatGPT plugin** created for the developer is not automatically av
 
 ## Setup
 
-- Install PHP 8.5, Composer, a database driver (SQLite is sufficient to start), and HTTPS with a trusted reverse proxy.
+- Install PHP 8.5, Composer, PostgreSQL 17 (the OAuth UUID defaults use `gen_random_uuid()`), and HTTPS with a trusted reverse proxy.
 - `composer install --no-dev --optimize-autoloader`
 - Copy `.env.example` to `.env`, set `APP_URL=https://your-domain.example` (exact public HTTPS origin, no path or trailing slash), `APP_ENV=production`, and `APP_DEBUG=false`.
 - `php artisan key:generate`
-- Create `database/database.sqlite` or configure PostgreSQL, with writable database and storage directories.
-- `php artisan migrate --force`, then `php artisan optimize`.
+- Configure PostgreSQL credentials (Sail uses the `pgsql` hostname) and make Laravel storage writable.
+- `php artisan migrate --force`, then `php artisan optimize`. On a disposable local database created with the previous integer-key schema, `php artisan migrate:fresh` is required because editing an already-applied migration does not alter existing tables. **Never run migrate:fresh against real user data**; migrate existing data with a separate, carefully planned schema/data migration.
 - Connect `https://your-domain.example/mcp` in ChatGPT Plugins or another cloud-based remote-MCP client and select OAuth with **automatic client registration**.
 - On first connect, enter a GitVerse PAT on the authorization page. The AI client will receive only its gateway-issued access and refresh tokens.
 
@@ -52,7 +52,7 @@ The **private ChatGPT plugin** created for the developer is not automatically av
 
 ## Testing
 
-`php artisan test --compact --filter=Mcp`
+`php artisan test --compact --filter=Mcp` (run against an isolated PostgreSQL test database; do not use your production database).
 
 The repository deliberately has no `.github` CI configuration.
 
