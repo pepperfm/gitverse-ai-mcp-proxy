@@ -4,17 +4,15 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Mcp;
 
-use App\Models\GitVerseCredential;
-use App\Models\User;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
 use Laravel\Passport\ClientRepository;
+use App\Models\GitVerseCredential;
+use App\Models\User;
 
 final class GitVerseConnectController
 {
@@ -23,7 +21,7 @@ final class GitVerseConnectController
         $query = $this->oauthQuery($request);
         $client = $clients->find((string) ($query['client_id'] ?? ''));
 
-        if (! $client || ! in_array($query['redirect_uri'] ?? '', $client->redirect_uris, true)) {
+        if (!$client || !in_array($query['redirect_uri'] ?? '', $client->redirect_uris, true)) {
             abort(403, 'The pending OAuth client is invalid.');
         }
 
@@ -64,7 +62,7 @@ final class GitVerseConnectController
             ]);
         }
 
-        if (! $probe->successful()) {
+        if (!$probe->successful()) {
             return back()->withErrors([
                 'gitverse_token' => 'GitVerse не принял токен или не ответил на MCP initialize.',
             ]);
@@ -83,8 +81,8 @@ final class GitVerseConnectController
             } else {
                 $user = User::query()->create([
                     'name' => 'GitVerse account',
-                    'email' => Str::uuid().'@gitverse.invalid',
-                    'password' => Str::random(80),
+                    'email' => str()->uuid()->toString() . '@gitverse.invalid',
+                    'password' => str()->random(80),
                 ]);
             }
 
@@ -96,7 +94,7 @@ final class GitVerseConnectController
             return $user;
         });
 
-        Auth::guard('web')->login($user);
+        auth('web')->login($user);
         $request->session()->regenerate();
         $request->session()->put('mcp.authorization_url', $request->session()->get('url.intended'));
 
@@ -110,16 +108,21 @@ final class GitVerseConnectController
     {
         $intended = $request->session()->get('url.intended');
 
-        if (! is_string($intended)
+        if (
+            !is_string($intended)
+            || parse_url($intended, PHP_URL_PATH) !== '/oauth/authorize'
             || parse_url($intended, PHP_URL_HOST) !== parse_url(OAuthMetadataController::base(), PHP_URL_HOST)
-            || parse_url($intended, PHP_URL_PATH) !== '/oauth/authorize') {
+        ) {
             abort(403, 'Start the OAuth authorization from your AI client.');
         }
 
         parse_str((string) parse_url($intended, PHP_URL_QUERY), $parameters);
 
-        if (! is_array($parameters) || ! is_string($parameters['client_id'] ?? null)
-            || ! is_string($parameters['redirect_uri'] ?? null)) {
+        if (
+            !is_array($parameters)
+            || !is_string($parameters['client_id'] ?? null)
+            || !is_string($parameters['redirect_uri'] ?? null)
+        ) {
             abort(403, 'Invalid pending OAuth request.');
         }
 

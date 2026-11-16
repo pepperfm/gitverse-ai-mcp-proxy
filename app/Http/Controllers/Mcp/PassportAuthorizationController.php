@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Mcp;
 
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Laravel\Passport\Contracts\AuthorizationViewResponse;
@@ -24,10 +23,12 @@ final class PassportAuthorizationController
         AuthorizationViewResponse $view,
         AuthorizationController $passport,
     ): Response|AuthorizationViewResponse {
-        if ($request->query('resource') !== OAuthMetadataController::resource()
-            || $request->query('code_challenge_method') !== 'S256'
-            || ! is_string($request->query('code_challenge'))
-            || preg_match('/^[A-Za-z0-9_-]{43}$/D', $request->query('code_challenge')) !== 1) {
+        if (
+            $request->query('code_challenge_method') !== 'S256'
+            || !is_string($request->query('code_challenge'))
+            || $request->query('resource') !== OAuthMetadataController::resource()
+            || preg_match('/^[A-Za-z0-9_-]{43}$/D', $request->query('code_challenge')) !== 1
+        ) {
             abort(400, 'Invalid MCP authorization request.');
         }
 
@@ -61,7 +62,8 @@ final class PassportAuthorizationController
         AccessTokenController $passport,
     ): Response {
         if ($request->input('resource') !== OAuthMetadataController::resource()) {
-            return response()->json(['error' => 'invalid_target'], 400)
+            return response()
+                ->json(['error' => 'invalid_target'], 400)
                 ->header('Cache-Control', 'no-store');
         }
 

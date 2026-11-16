@@ -17,7 +17,7 @@ final class OAuthMetadataController
 
     public static function resource(): string
     {
-        return self::base().'/mcp';
+        return self::base() . '/mcp';
     }
 
     public function protectedResource(): JsonResponse
@@ -33,9 +33,9 @@ final class OAuthMetadataController
     {
         return response()->json([
             'issuer' => self::base(),
-            'authorization_endpoint' => self::base().'/oauth/authorize',
-            'token_endpoint' => self::base().'/oauth/token',
-            'registration_endpoint' => self::base().'/oauth/register',
+            'authorization_endpoint' => self::base() . '/oauth/authorize',
+            'token_endpoint' => self::base() . '/oauth/token',
+            'registration_endpoint' => self::base() . '/oauth/register',
             'response_types_supported' => ['code'],
             'grant_types_supported' => ['authorization_code', 'refresh_token'],
             'token_endpoint_auth_methods_supported' => ['none'],
@@ -51,25 +51,27 @@ final class OAuthMetadataController
         $grants = $request->input('grant_types', ['authorization_code', 'refresh_token']);
         $responses = $request->input('response_types', ['code']);
 
-        if (! is_array($uris) || count($uris) < 1 || count($uris) > 5) {
+        if (!is_array($uris) || count($uris) < 1 || count($uris) > 5) {
+            return $this->badRequest('invalid_redirect_uri');
+        }
+        if (array_any($uris, fn($uri) => !is_string($uri) || !$this->validRedirectUri($uri))) {
             return $this->badRequest('invalid_redirect_uri');
         }
 
-        foreach ($uris as $uri) {
-            if (! is_string($uri) || ! $this->validRedirectUri($uri)) {
-                return $this->badRequest('invalid_redirect_uri');
-            }
-        }
-
-        if (! is_string($name) || trim($name) === '' || strlen($name) > 150
+        if (
+            !is_string($name)
+            || !is_array($grants)
+            || !is_array($responses)
+            || !in_array('code', $responses, true)
+            || trim($name) === ''
+            || strlen($name) > 150
+            || !in_array('authorization_code', $grants, true)
+            || array_diff($responses, ['code'])
             || $request->input('token_endpoint_auth_method', 'none') !== 'none'
-            || ! is_array($grants) || ! is_array($responses)
+            || array_diff($grants, ['authorization_code', 'refresh_token'])
             || count(array_filter($grants, 'is_string')) !== count($grants)
             || count(array_filter($responses, 'is_string')) !== count($responses)
-            || array_diff($grants, ['authorization_code', 'refresh_token'])
-            || array_diff($responses, ['code'])
-            || ! in_array('authorization_code', $grants, true)
-            || ! in_array('code', $responses, true)) {
+        ) {
             return $this->badRequest('invalid_client_metadata');
         }
 
@@ -102,10 +104,14 @@ final class OAuthMetadataController
 
         $parts = parse_url($uri);
 
-        if (! is_array($parts) || ! isset($parts['host'])
+        if (
+            !is_array($parts)
+            || !isset($parts['host'])
+            || isset($parts['user'])
+            || isset($parts['fragment'])
+            || (isset($parts['port']) && $parts['port'] !== 443)
             || strtolower($parts['scheme'] ?? '') !== 'https'
-            || isset($parts['user']) || isset($parts['fragment'])
-            || (isset($parts['port']) && $parts['port'] !== 443)) {
+        ) {
             return false;
         }
 
