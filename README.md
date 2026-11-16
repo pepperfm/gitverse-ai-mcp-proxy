@@ -23,17 +23,24 @@ Requirements: PHP 8.5, Composer, PostgreSQL 17, HTTPS reverse proxy.
 2. `cp .env.example .env`; set `APP_URL=https://your-domain.example`, PostgreSQL credentials, `APP_ENV=production`, `APP_DEBUG=false`.
 3. `php artisan key:generate`.
 4. `php artisan passport:keys`. Keep `storage/oauth-private.key` and `storage/oauth-public.key` private; do not commit them.
-5. `php artisan migrate --force` and `php artisan optimize`.
+5. For a disposable development database, run `php artisan migrate:fresh` and `php artisan optimize`. This resets all data.
 6. In ChatGPT Plugins, create a custom MCP connection pointing to `https://your-domain.example/mcp` and select OAuth.
 7. Paste your personal GitVerse PAT on the connection page, then approve on the following consent screen. Test a read-only GitVerse tool first.
 
 The project provides its own UUID-compatible Passport migrations. **Do not run `passport:install`, `install:api --passport`, or publish Passport migrations**, as that could introduce duplicate tables or migrations.
 
-## Migrating from the prototype
+## Fresh development schema
 
-The migration `2026_11_16_000001_replace_custom_oauth_with_passport.php` deliberately deletes prototype OAuth clients, authorization codes, and tokens. Users must reconnect. Existing encrypted GitVerse credentials are retained and linked to local Eloquent users when the PAT is entered again. Do not apply this migration without a backup if the prototype contains important data.
+There is intentionally **no historical conversion migration** while the project is in development. The retained migrations create users, jobs, GitVerse credentials and the Passport OAuth tables directly. Legacy `mcp_oauth_*` migrations and the unused Sanctum `personal_access_tokens` migration have been removed.
 
-For disposable local databases only, `php artisan migrate:fresh` is also acceptable. Never reset a production database with real users.
+Reset **only your development/test database**:
+
+```bash
+php artisan migrate:fresh
+php artisan test --compact --filter=Mcp
+```
+
+This destroys all data, including connected accounts and GitVerse PATs. Any cloud AI service must reconnect afterward. **Do not run migrate:fresh against a production database with actual users.**
 
 ## Security and compatibility
 

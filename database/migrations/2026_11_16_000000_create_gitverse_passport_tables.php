@@ -10,19 +10,17 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('mcp_gitverse_credentials', static function (Blueprint $table): void {
-            $table->foreignUuid('user_id')->nullable()->unique()->constrained('users')->nullOnDelete();
+        Schema::create('mcp_gitverse_credentials', function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->foreignUuid('user_id')->unique()->constrained('users')->cascadeOnDelete();
+            $table->string('fingerprint', 64)->unique();
+            $table->text('encrypted_token');
+            $table->timestamps();
         });
 
-        // The prototype's self-issued codes/tokens are intentionally invalidated.
-        Schema::dropIfExists('mcp_oauth_tokens');
-        Schema::dropIfExists('mcp_oauth_codes');
-        Schema::dropIfExists('mcp_oauth_clients');
-
-        // Passport 13.x schema, with UUID user IDs to match this application's users table.
-        Schema::create('oauth_clients', static function (Blueprint $table): void {
+        Schema::create('oauth_clients', function (Blueprint $table): void {
             $table->uuid('id')->primary();
-            $table->nullableMorphs('owner');
+            $table->nullableUuidMorphs('owner');
             $table->string('name');
             $table->string('secret')->nullable();
             $table->string('provider')->nullable();
@@ -32,7 +30,7 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('oauth_auth_codes', static function (Blueprint $table): void {
+        Schema::create('oauth_auth_codes', function (Blueprint $table): void {
             $table->char('id', 80)->primary();
             $table->foreignUuid('user_id')->index();
             $table->foreignUuid('client_id');
@@ -41,7 +39,7 @@ return new class extends Migration
             $table->dateTime('expires_at')->nullable();
         });
 
-        Schema::create('oauth_access_tokens', static function (Blueprint $table): void {
+        Schema::create('oauth_access_tokens', function (Blueprint $table): void {
             $table->char('id', 80)->primary();
             $table->foreignUuid('user_id')->nullable()->index();
             $table->foreignUuid('client_id');
@@ -52,7 +50,7 @@ return new class extends Migration
             $table->dateTime('expires_at')->nullable();
         });
 
-        Schema::create('oauth_refresh_tokens', static function (Blueprint $table): void {
+        Schema::create('oauth_refresh_tokens', function (Blueprint $table): void {
             $table->char('id', 80)->primary();
             $table->char('access_token_id', 80)->index();
             $table->boolean('revoked');
@@ -66,11 +64,6 @@ return new class extends Migration
         Schema::dropIfExists('oauth_access_tokens');
         Schema::dropIfExists('oauth_auth_codes');
         Schema::dropIfExists('oauth_clients');
-
-        Schema::table('mcp_gitverse_credentials', static function (Blueprint $table): void {
-            $table->dropConstrainedForeignId('user_id');
-        });
-
-        // Old prototype OAuth tokens are deliberately not recoverable.
+        Schema::dropIfExists('mcp_gitverse_credentials');
     }
 };

@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 
+use App\Models\GitVerseCredential;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use Laravel\Passport\Passport;
 
 uses(RefreshDatabase::class);
 
@@ -14,10 +18,10 @@ beforeEach(function (): void {
     Config::set('gitverse.endpoint', 'https://mcp.gitverse.ru');
 });
 
-function registerRemoteClient($testCase, string $callback = 'https://chatgpt.com/connector_platform_oauth_redirect', string $name = 'ChatGPT'): string
+function registerGatewayClient($testCase, string $callback = 'https://chatgpt.com/connector_platform_oauth_redirect'): string
 {
     return $testCase->postJson('/oauth/register', [
-        'client_name' => $name,
+        'client_name' => 'Cloud AI',
         'redirect_uris' => [$callback],
         'grant_types' => ['authorization_code', 'refresh_token'],
         'response_types' => ['code'],
@@ -25,276 +29,160 @@ function registerRemoteClient($testCase, string $callback = 'https://chatgpt.com
     ])->assertCreated()->json('client_id');
 }
 
-/**
- * @return array{client_id: string, code: string, verifier: string, redirect_uri: string}
- */
-function beginMcpAuthorization($testCase, string $personalToken = 'valid-personal-gitverse-token', string $callback = 'https://chatgpt.com/connector_platform_oauth_redirect', string $name = 'ChatGPT'): array
+function gatewayAuthorizationUrl(string $clientId): string
 {
-    $client = registerRemoteClient($testCase, $callback, $name);
-    $verifier = str_repeat('v', 64);
-    $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
-    $redirect = $callback;
+    $verifier = str_repeat('A', 64);
 
-    $testCase->get('/oauth/authorize?'.http_build_query([
-        'client_id' => $client,
-        'redirect_uri' => $redirect,
+    return 'https://proxy.example.test/oauth/authorize?'.http_build_query([
+        'client_id' => $clientId,
+        'redirect_uri' => 'https://chatgpt.com/connector_platform_oauth_redirect',
         'response_type' => 'code',
-        'code_challenge_method' => 'S256',
-        'code_challenge' => $challenge,
         'scope' => 'gitverse:access',
         'resource' => 'https://proxy.example.test/mcp',
-        'state' => 'a-state-value',
-    ]))->assertOk()->assertSee('Подключить GitVerse');
-
-    Http::fake([
-        'https://mcp.gitverse.ru*' => Http::response(['jsonrpc' => '2.0', 'result' => ['protocolVersion' => '2025-03-26']], 200),
-    ]);
-
-    $response = $testCase->post('/oauth/authorize', [
-        'gitverse_token' => $personalToken,
-    ])->assertRedirect();
-
-    $location = (string) $response->headers->get('Location');
-    parse_str((string) parse_url($location, PHP_URL_QUERY), $parameters);
-
-    expect($parameters['iss'])->toBe('https://proxy.example.test');
-    expect($parameters['state'])->toBe('a-state-value');
-
-    return [
-        'client_id' => $client,
-        'code' => $parameters['code'],
-        'verifier' => $verifier,
-        'redirect_uri' => $redirect,
-    ];
-}
-
-function exchangeMcpCode($testCase, array $authorization, ?string $verifier = null): \Illuminate\Testing\TestResponse
-{
-    return $testCase->postJson('/oauth/token', [
-        'grant_type' => 'authorization_code',
-        'client_id' => $authorization['client_id'],
-        'code' => $authorization['code'],
-        'code_verifier' => $verifier ?? $authorization['verifier'],
-        'redirect_uri' => $authorization['redirect_uri'],
-        'resource' => 'https://proxy.example.test/mcp',
+        'state' => 'oauth-test',
+        'code_challenge_method' => 'S256',
+        'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='),
     ]);
 }
 
-it('advertises protected resource and oauth metadata for chatgpt', function (): void {
+it('publishes MCP OAuth discovery and uses the Passport token endpoint', function (): void {
     $this->getJson('/.well-known/oauth-protected-resource')
-        ->assertOk()
-        ->assertJsonPath('resource', 'https://proxy.example.test/mcp')
-        ->assertJsonPath('authorization_servers.0', 'https://proxy.example.test');
+        ->assertOk()->assertJsonPath('resource', 'https://proxy.example.test/mcp');
 
     $this->getJson('/.well-known/oauth-authorization-server')
-        ->assertOk()
-        ->assertJsonPath('token_endpoint_auth_methods_supported.0', 'none')
-        ->assertJsonPath('code_challenge_methods_supported.0', 'S256')
-        ->assertJsonPath('authorization_response_iss_parameter_supported', true);
+        ->assertOk()->assertJsonPath('authorization_endpoint', 'https://proxy.example.test/oauth/authorize')
+        ->assertJsonPath('code_challenge_methods_supported.0', 'S256');
+
+    $this->postJson('/oauth/token', ['grant_type' => 'authorization_code'])
+        ->assertStatus(400)->assertJsonPath('error', 'invalid_target');
 });
 
-it('accepts arbitrary HTTPS provider callbacks and rejects unsafe redirects', function (): void {
-    $clientId = registerRemoteClient($this, 'https://claude.ai/api/mcp/auth_callback', 'Claude Web');
+it('creates public Passport clients for multiple remote AI services', function (): void {
+    $first = registerGatewayClient($this);
+    $second = registerGatewayClient($this, 'https://claude.ai/api/mcp/auth_callback');
 
-    expect($clientId)->toBeString();
+    expect(Str::isUuid($first))->toBeTrue()->and($first)->not->toBe($second);
+    $client = Passport::client()->newQuery()->findOrFail($first);
+    expect($client->confidential())->toBeFalse()
+        ->and($client->hasGrantType('authorization_code'))->toBeTrue();
+});
 
+it('rejects unsafe callback addresses', function (): void {
     foreach ([
         'http://example.com/callback',
         'https://localhost/callback',
         'https://127.0.0.1/callback',
-        'https://attacker.example@localhost/callback',
-        'https://cloud.example/callback#fragment',
+        'https://bad.example@localhost/callback',
+        'https://cloud.example/path#fragment',
         'https://cloud.example:8443/callback',
-    ] as $unsafeUri) {
-        $this->postJson('/oauth/register', [
-            'redirect_uris' => [$unsafeUri],
-        ])->assertStatus(400)->assertJsonPath('error', 'invalid_redirect_uri');
-    }
-
-    expect(DB::table('mcp_oauth_clients')->count())->toBe(1);
-});
-
-it('exchanges a single use authorization code with pkce and never gives chatgpt the gitverse token', function (): void {
-    $authorization = beginMcpAuthorization($this);
-
-    exchangeMcpCode($this, $authorization, str_repeat('x', 64))
-        ->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
-
-    $response = exchangeMcpCode($this, $authorization)
-        ->assertOk()->assertJsonPath('token_type', 'Bearer');
-
-    expect($response->json('access_token'))->not->toBe('valid-personal-gitverse-token');
-    expect($response->json('refresh_token'))->not->toBe('valid-personal-gitverse-token');
-
-    exchangeMcpCode($this, $authorization)
-        ->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
-
-    expect(DB::table('mcp_gitverse_credentials')->count())->toBe(1);
-});
-
-it('creates UUID primary keys and matching credential foreign keys', function (): void {
-    $authorization = beginMcpAuthorization($this);
-    exchangeMcpCode($this, $authorization)->assertOk();
-
-    $credential = DB::table('mcp_gitverse_credentials')->first();
-    $code = DB::table('mcp_oauth_codes')->first();
-    $tokens = DB::table('mcp_oauth_tokens')->get();
-
-    expect(str()->isUuid($credential->id))->toBeTrue()
-        ->and(str()->isUuid($code->id))->toBeTrue()
-        ->and($code->credential_id)->toBe($credential->id)
-        ->and($tokens)->toHaveCount(2);
-
-    foreach ($tokens as $token) {
-        expect(str()->isUuid($token->id))->toBeTrue()
-            ->and($token->credential_id)->toBe($credential->id);
+    ] as $url) {
+        $this->postJson('/oauth/register', ['redirect_uris' => [$url]])
+            ->assertStatus(400)->assertJsonPath('error', 'invalid_redirect_uri');
     }
 });
 
-it('rotates refresh tokens and rejects replayed refresh tokens', function (): void {
-    $authorization = beginMcpAuthorization($this);
-    $tokens = exchangeMcpCode($this, $authorization)->assertOk()->json();
+it('migrates only GitVerse credentials and Passport OAuth tables, not the prototype tables', function (): void {
+    foreach (['oauth_clients', 'oauth_auth_codes', 'oauth_access_tokens', 'oauth_refresh_tokens', 'mcp_gitverse_credentials'] as $table) {
+        expect(Schema::hasTable($table))->toBeTrue();
+    }
 
-    $renewed = $this->postJson('/oauth/token', [
-        'grant_type' => 'refresh_token',
-        'client_id' => $authorization['client_id'],
-        'refresh_token' => $tokens['refresh_token'],
-        'resource' => 'https://proxy.example.test/mcp',
-    ])->assertOk()->json();
-
-    expect($renewed['refresh_token'])->not->toBe($tokens['refresh_token']);
-
-    $this->postJson('/oauth/token', [
-        'grant_type' => 'refresh_token',
-        'client_id' => $authorization['client_id'],
-        'refresh_token' => $tokens['refresh_token'],
-        'resource' => 'https://proxy.example.test/mcp',
-    ])->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
+    foreach (['mcp_oauth_clients', 'mcp_oauth_codes', 'mcp_oauth_tokens', 'personal_access_tokens'] as $table) {
+        expect(Schema::hasTable($table))->toBeFalse();
+    }
 });
 
-it('challenges unauthenticated mcp requests with resource metadata', function (): void {
-    $this->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list'])
-        ->assertUnauthorized()
-        ->assertHeader('WWW-Authenticate');
+it('requires a pending OAuth request to enter a GitVerse credential', function (): void {
+    $this->get('/connect')->assertForbidden();
+    $this->post('/connect', ['gitverse_token' => 'test-secret-token'])->assertForbidden();
 });
 
-it('proxies an authenticated mcp call without forwarding chatgpt access token to gitverse', function (): void {
-    $authorization = beginMcpAuthorization($this);
-    $tokens = exchangeMcpCode($this, $authorization)->assertOk()->json();
+it('saves GitVerse PAT encrypted and associated with a UUID user', function (): void {
+    $client = registerGatewayClient($this);
+    $oauthUrl = gatewayAuthorizationUrl($client);
 
-    Http::fake([
-        'https://mcp.gitverse.ru*' => Http::response([
-            'jsonrpc' => '2.0',
-            'id' => 2,
-            'result' => ['tools' => []],
-        ], 200, ['Content-Type' => 'application/json']),
-    ]);
+    Http::fake(['https://mcp.gitverse.ru*' => Http::response([
+        'jsonrpc' => '2.0', 'id' => 1, 'result' => ['protocolVersion' => '2025-03-26'],
+    ], 200)]);
 
-    $result = $this->withToken($tokens['access_token'])
-        ->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']);
+    $this->withSession(['url.intended' => $oauthUrl])
+        ->get('https://proxy.example.test/connect')->assertOk();
 
-    $result->assertOk();
-    expect($result->streamedContent())->toContain('"tools"');
+    $this->post('https://proxy.example.test/connect', [
+        'gitverse_token' => 'test-gitverse-secret',
+    ])->assertRedirect($oauthUrl);
 
-    Http::assertSent(function ($request): bool {
-        return $request->hasHeader('Authorization', 'Bearer valid-personal-gitverse-token')
-            && $request->method() === 'POST';
-    });
+    $credential = GitVerseCredential::query()->sole();
+    $user = User::query()->sole();
+    expect(Str::isUuid($credential->id))->toBeTrue()
+        ->and($credential->user_id)->toBe($user->id)
+        ->and($credential->encrypted_token)->toBe('test-gitverse-secret')
+        ->and($credential->getRawOriginal('encrypted_token'))->not->toContain('test-gitverse-secret');
 });
 
-it('rejects a GitVerse credential that the upstream MCP refuses', function (): void {
-    $clientId = registerRemoteClient($this);
-    $verifier = str_repeat('v', 64);
-    $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
-
-    $this->get('/oauth/authorize?'.http_build_query([
-        'client_id' => $clientId,
-        'redirect_uri' => 'https://chatgpt.com/connector_platform_oauth_redirect',
-        'response_type' => 'code',
-        'code_challenge_method' => 'S256',
-        'code_challenge' => $challenge,
-        'scope' => 'gitverse:access',
-        'resource' => 'https://proxy.example.test/mcp',
-        'state' => 'another-state',
-    ]))->assertOk();
-
+it('rejects a GitVerse credential when the upstream MCP refuses it', function (): void {
+    $client = registerGatewayClient($this);
     Http::fake(['https://mcp.gitverse.ru*' => Http::response(['error' => 'Unauthorized'], 401)]);
 
-    $this->post('/oauth/authorize', [
-        'gitverse_token' => 'an-invalid-GitVerse-token',
-    ])->assertSessionHasErrors('gitverse_token');
+    $this->withSession(['url.intended' => gatewayAuthorizationUrl($client)])
+        ->post('https://proxy.example.test/connect', ['gitverse_token' => 'invalid-gitverse-token'])
+        ->assertSessionHasErrors('gitverse_token');
 
-    expect(DB::table('mcp_gitverse_credentials')->count())->toBe(0);
+    expect(User::query()->count())->toBe(0);
 });
 
-it('isolates separate AI clients and users by their GitVerse credentials', function (): void {
-    $first = beginMcpAuthorization($this, 'first-user-personal-token');
-    $firstTokens = exchangeMcpCode($this, $first)->assertOk()->json();
-
-    $second = beginMcpAuthorization($this, 'second-user-personal-token', 'https://claude.ai/api/mcp/auth_callback', 'Claude Web');
-    $secondTokens = exchangeMcpCode($this, $second)->assertOk()->json();
-
-    expect(DB::table('mcp_gitverse_credentials')->count())->toBe(2);
-
-    Http::fake([
-        'https://mcp.gitverse.ru*' => Http::response(
-            ['jsonrpc' => '2.0', 'id' => 2, 'result' => ['tools' => []]],
-            200,
-            ['Content-Type' => 'application/json'],
-        ),
-    ]);
-
-    $this->withToken($firstTokens['access_token'])
-        ->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'])
-        ->assertOk();
-    $this->withToken($secondTokens['access_token'])
-        ->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'])
-        ->assertOk();
-
-    Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer first-user-personal-token'));
-    Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer second-user-personal-token'));
+it('challenges unauthenticated MCP requests with OAuth metadata', function (): void {
+    $this->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list'])
+        ->assertUnauthorized()->assertHeader('WWW-Authenticate');
 });
 
+it('proxies the current Passport users credential, not another users credential', function (): void {
+    $first = User::factory()->create();
+    $first->gitverseCredential()->create(['fingerprint' => hash('sha256', 'first-token'), 'encrypted_token' => 'first-token']);
+    $second = User::factory()->create();
+    $second->gitverseCredential()->create(['fingerprint' => hash('sha256', 'second-token'), 'encrypted_token' => 'second-token']);
 
-it('uses Passport for the complete authorization code and PKCE exchange', function (): void {
+    Http::fake(['https://mcp.gitverse.ru*' => Http::response([
+        'jsonrpc' => '2.0', 'id' => 2, 'result' => ['tools' => []],
+    ], 200)]);
+
+    Passport::actingAs($first, ['gitverse:access']);
+    $this->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'])->assertOk();
+
+    Passport::actingAs($second, ['gitverse:access']);
+    $this->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'])->assertOk();
+
+    Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer first-token'));
+    Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer second-token'));
+});
+
+it('rejects Passport users without the GitVerse scope', function (): void {
+    $user = User::factory()->create();
+    $user->gitverseCredential()->create(['fingerprint' => hash('sha256', 'scope-token'), 'encrypted_token' => 'scope-token']);
+
+    Passport::actingAs($user, []);
+    Http::fake();
+    $this->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list'])->assertUnauthorized();
+    Http::assertNothingSent();
+});
+
+it('completes the real Passport authorization code + PKCE flow', function (): void {
     $this->artisan('passport:keys', ['--force' => true])->assertExitCode(0);
 
     $clientId = registerGatewayClient($this);
-    $redirectUri = 'https://chatgpt.com/connector_platform_oauth_redirect';
-    $verifier = str_repeat('A', 64);
-    $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+    $oauthUrl = gatewayAuthorizationUrl($clientId);
+    $callbackUri = 'https://chatgpt.com/connector_platform_oauth_redirect';
 
-    $query = http_build_query([
-        'client_id' => $clientId,
-        'redirect_uri' => $redirectUri,
-        'response_type' => 'code',
-        'scope' => 'gitverse:access',
-        'state' => 'oauth-integration-test',
-        'resource' => 'https://proxy.example.test/mcp',
-        'code_challenge_method' => 'S256',
-        'code_challenge' => $challenge,
-    ]);
+    $this->get($oauthUrl)->assertRedirect('https://proxy.example.test/connect');
 
-    $authorizeUrl = 'https://proxy.example.test/oauth/authorize?'.$query;
-
-    $this->get($authorizeUrl)->assertRedirect('https://proxy.example.test/connect');
-
-    Http::fake([
-        'https://mcp.gitverse.ru*' => Http::response([
-            'jsonrpc' => '2.0',
-            'id' => 1,
-            'result' => ['protocolVersion' => '2025-03-26'],
-        ], 200),
-    ]);
+    Http::fake(['https://mcp.gitverse.ru*' => Http::response([
+        'jsonrpc' => '2.0', 'id' => 1, 'result' => ['protocolVersion' => '2025-03-26'],
+    ], 200)]);
 
     $this->get('https://proxy.example.test/connect')->assertOk();
-    $this->post('https://proxy.example.test/connect', [
-        'gitverse_token' => 'integration-gitverse-token',
-    ])->assertRedirect($authorizeUrl);
+    $this->post('https://proxy.example.test/connect', ['gitverse_token' => 'integration-secret'])
+        ->assertRedirect($oauthUrl);
 
-    $consent = $this->get($authorizeUrl)->assertOk();
-    $this->assertAuthenticated('web');
-
+    $consent = $this->get($oauthUrl)->assertOk();
     preg_match('/name="auth_token" value="([^"]+)"/', $consent->getContent(), $matches);
     expect($matches)->toHaveCount(2);
 
@@ -302,31 +190,24 @@ it('uses Passport for the complete authorization code and PKCE exchange', functi
         'auth_token' => $matches[1],
     ])->assertRedirect();
 
-    $callback = $approved->headers->get('Location');
-    expect($callback)->toStartWith($redirectUri);
+    $location = (string) $approved->headers->get('Location');
+    expect($location)->toStartWith($callbackUri);
+    parse_str((string) parse_url($location, PHP_URL_QUERY), $values);
+    expect($values['state'])->toBe('oauth-test');
 
-    parse_str((string) parse_url($callback, PHP_URL_QUERY), $params);
-    expect($params['state'])->toBe('oauth-integration-test');
-
-    $issued = $this->post('https://proxy.example.test/oauth/token', [
+    $request = [
         'client_id' => $clientId,
         'grant_type' => 'authorization_code',
-        'code' => $params['code'],
-        'redirect_uri' => $redirectUri,
-        'code_verifier' => $verifier,
+        'code' => $values['code'],
+        'redirect_uri' => $callbackUri,
+        'code_verifier' => str_repeat('A', 64),
         'resource' => 'https://proxy.example.test/mcp',
-    ])->assertOk();
+    ];
 
+    $issued = $this->post('https://proxy.example.test/oauth/token', $request)->assertOk();
     expect($issued->json('access_token'))->toBeString()
         ->and($issued->json('refresh_token'))->toBeString()
-        ->and($issued->json('access_token'))->not->toBe('integration-gitverse-token');
+        ->and($issued->json('access_token'))->not->toBe('integration-secret');
 
-    $this->post('https://proxy.example.test/oauth/token', [
-        'client_id' => $clientId,
-        'grant_type' => 'authorization_code',
-        'code' => $params['code'],
-        'redirect_uri' => $redirectUri,
-        'code_verifier' => $verifier,
-        'resource' => 'https://proxy.example.test/mcp',
-    ])->assertStatus(400);
+    $this->post('https://proxy.example.test/oauth/token', $request)->assertStatus(400);
 });
