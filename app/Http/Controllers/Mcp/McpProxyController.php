@@ -69,7 +69,7 @@ final class McpProxyController
         }
 
         if (in_array($upstream->status(), [401, 403], true)) {
-            $upstream->close();
+            $upstream->toPsrResponse()->getBody()->close();
 
             return response()->json(['error' => 'GitVerse credential rejected'], 502);
         }
