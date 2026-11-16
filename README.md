@@ -1,56 +1,59 @@
-# GitVerse AI MCP Proxy
+# GitVerse Remote MCP Gateway
 
-A small Laravel 13 / PHP 8.5 service connecting ChatGPT to the official GitVerse remote MCP server through OAuth authorization-code + PKCE.
+A Laravel 13 / PHP 8.5 gateway for **cloud-hosted AI clients** (ChatGPT, Claude Web, and other remote MCP clients) to connect to the official GitVerse MCP using **each user's own GitVerse Personal Access Token**.
 
-## What it does
+**One public MCP URL:** `https://your-domain.example/mcp`. No client-side app, local agent or Livewire is required.
 
-- Exposes an HTTPS MCP Streamable HTTP endpoint at /mcp.
-- Advertises OAuth protected-resource and authorization-server metadata.
-- Supports restricted ChatGPT Dynamic Client Registration (DCR), PKCE S256, short-lived access tokens and rotating refresh tokens.
-- Shows **one Blade form** during the ChatGPT authorization flow to paste a GitVerse Personal Access Token (PAT).
-- Verifies the PAT against the official GitVerse MCP, encrypts it at rest with Laravel APP_KEY, and proxies MCP traffic using that PAT. ChatGPT never receives the GitVerse PAT.
-- Refuses other users' PATs unless their SHA-256 fingerprint matches the configured value. No registration system, Livewire, Nuxt, separate Redis service or GitHub Actions is required.
+## How a connection works
 
-**Important:** No end-to-end ChatGPT integration has been verified yet. The custom OAuth server is security-sensitive; review and test it on an HTTPS staging domain before exposing production repositories. Configure the GitVerse PAT with the smallest possible permissions.
+1. A person adds the public MCP URL to an AI service that supports remote MCP with OAuth.
+2. That service registers an OAuth public client using Dynamic Client Registration (DCR), or uses pre-registered credentials where supported.
+3. The gateway shows its sole Blade page: the registered client name, **actual OAuth redirect domain**, and a PAT input.
+4. The user enters **their own GitVerse PAT**. The gateway checks it with GitVerse MCP and stores it encrypted under Laravel's APP_KEY.
+5. The gateway issues short-lived OAuth tokens **for that specific client and credential**. AI services never receive the GitVerse PAT.
+6. MCP requests are authenticated at the gateway and forwarded to GitVerse using the PAT belonging to that connection.
+
+Two people using different AI services are isolated: a ChatGPT session cannot access the GitVerse credential associated with someone else's Claude session. No local computer is involved in the MCP exchange.
+
+The **private ChatGPT plugin** created for the developer is not automatically available to everyone. Other users can add the same published MCP URL as their own custom remote MCP connection in services that allow it.
 
 ## Setup
 
-Install PHP 8.5, Composer and a database driver (SQLite is enough for one user). Use an HTTPS reverse proxy and point the document root to Laravel's public directory.
+- Install PHP 8.5, Composer, a database driver (SQLite is sufficient to start), and HTTPS with a trusted reverse proxy.
+- `composer install --no-dev --optimize-autoloader`
+- Copy `.env.example` to `.env`, set `APP_URL=https://your-domain.example` (exact public HTTPS origin, no path or trailing slash), `APP_ENV=production`, and `APP_DEBUG=false`.
+- `php artisan key:generate`
+- Create `database/database.sqlite` or configure PostgreSQL, with writable database and storage directories.
+- `php artisan migrate --force`, then `php artisan optimize`.
+- Connect `https://your-domain.example/mcp` in ChatGPT Plugins or another cloud-based remote-MCP client and select OAuth with **automatic client registration**.
+- On first connect, enter a GitVerse PAT on the authorization page. The AI client will receive only its gateway-issued access and refresh tokens.
 
-1. Run composer install --no-dev --optimize-autoloader.
-2. Copy .env.example to .env and configure APP_URL to the exact public https:// hostname (no trailing slash). Set APP_ENV=production and APP_DEBUG=false.
-3. Run php artisan key:generate.
-4. Create database/database.sqlite (or configure PostgreSQL). Make the database and Laravel storage writable by the application.
-5. Generate the SHA-256 fingerprint of your existing GitVerse token **locally**. In a POSIX shell:
-   - read -rs GITVERSE_TOKEN; export GITVERSE_TOKEN
-   - php -r 'echo hash("sha256", getenv("GITVERSE_TOKEN")).PHP_EOL;'
-   - unset GITVERSE_TOKEN
-   Put only the printed 64-character hash in GITVERSE_ALLOWED_TOKEN_SHA256. Do **not** put the raw PAT in .env, GitHub or ChatGPT.
-6. Run php artisan migrate --force, then php artisan optimize.
-7. In ChatGPT → Plugins → Add custom MCP server, enter https://your-host/mcp, choose OAuth, and create the private plugin. The server advertises the DCR registration URL and authorization endpoints automatically.
-8. On first connection, ChatGPT opens the Blade authorization screen. Paste your existing PAT, then approve. After redirecting, test a read-only GitVerse tool such as listing repositories.
+**There is no shared `GITVERSE_TOKEN` or `GITVERSE_ALLOWED_TOKEN_SHA256` environment variable.** This is a multi-user service: each person supplies a different credential during consent.
 
-For local tests use an in-memory SQLite test database and execute php artisan test --compact --filter=Mcp.
+## Security and limitations
 
-## Security model
+- OAuth authorization code with PKCE S256, single-use 5-minute codes, one-hour access tokens, rotating 30-day refresh tokens, exact registered redirect URI matching and resource binding.
+- Registration accepts callback URLs on **HTTPS public domain names** (not localhost, IPs, userinfo or URL fragments); client registration is rate limited. Clients supply their own names: **the display name is not verified**; users must check the actual callback domain shown on the consent page.
+- User GitVerse PATs are encrypted at rest. OAuth tokens and authorization codes are only stored as SHA-256 hashes. Tokens are linked to the relevant registered client and credential.
+- External clients should provide their own token; the gateway does not maintain GitVerse accounts, perform GitVerse OAuth login or share credentials between users.
+- TLS is mandatory. Protect APP_KEY; do not log authorization headers, form token contents or request bodies. Use small-scope PATs. An exposed token can access everything its GitVerse permissions allow.
+- `php artisan gitverse:mcp-revoke` revokes **all** connections (a global emergency operation). `php artisan gitverse:mcp-prune` cleans expired rows, or schedule it using Laravel Scheduler. **Per-user account management/revocation UI is not implemented**.
+- DCR is provided for compatibility. Newer MCP clients may prefer Client ID Metadata Documents (CIMD); support for that flow is **not yet implemented**. Providers which require CIMD without DCR or manual registration will not connect.
+- **Not yet validated end-to-end** against ChatGPT or Claude Web. Before a public multi-user launch, perform an OAuth security review, tests with actual cloud clients, traffic limits, failure recovery and a revocation workflow. The code should currently be regarded as an MVP, not as an audited identity service.
 
-DCR accepts **only** the official ChatGPT stable callback or callback-ID-specific URLs on chatgpt.com. Redirect URIs are checked again during authorization. The OAuth code expires after 5 minutes, is single-use and PKCE-bound; access tokens expire after 1 hour and refresh tokens after 30 days. OAuth token values are stored only as SHA-256 hashes. PATs are encrypted at rest with APP_KEY, and only PATs matching GITVERSE_ALLOWED_TOKEN_SHA256 can authorize or make MCP calls.
+## Routes
 
-Changing GITVERSE_ALLOWED_TOKEN_SHA256 invalidates existing MCP access for the old PAT. To revoke ChatGPT access immediately run php artisan gitverse:mcp-revoke (keeps the registered OAuth clients) or revoke the PAT in GitVerse. Run php artisan schedule:run every minute via cron to prune expired codes, tokens and orphaned encrypted credentials daily, or run php artisan gitverse:mcp-prune manually. Rotate APP_KEY only with a migration plan: encrypted PATs would become unreadable.
+- `GET /.well-known/oauth-protected-resource`
+- `GET /.well-known/oauth-authorization-server`
+- `POST /oauth/register`
+- `GET, POST /oauth/authorize` (Blade authorization form)
+- `POST /oauth/token`
+- `GET, POST, DELETE /mcp` (Streamable HTTP proxy with SSE support)
 
-Do not log request bodies, OAuth credentials, or Authorization headers. Terminate TLS at a trusted reverse proxy, limit ingress, keep the APP_KEY safe, and consider additional firewall/IP restrictions. Configure PHP-FPM and nginx to allow long-running streaming requests; ensure nginx does not buffer SSE (the app sets X-Accel-Buffering: no).
+## Testing
 
-## Protocol
+`php artisan test --compact --filter=Mcp`
 
-- GET /.well-known/oauth-protected-resource
-- GET /.well-known/oauth-authorization-server
-- POST /oauth/register
-- GET + POST /oauth/authorize (session + CSRF-protected Blade form)
-- POST /oauth/token
-- GET + POST + DELETE /mcp
+The repository deliberately has no `.github` CI configuration.
 
-The proxy passes upstream MCP session/version/event headers and streams responses without reading SSE responses into memory. It does not implement the GitVerse tools itself.
-
-Based on [OpenAI MCP OAuth guidance](https://developers.openai.com/plugins/build/auth), [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization), and [GitVerse MCP docs](https://gitverse.ru/docs/ai/mcp/).
-
-No .github/CI directory is introduced.
+References: [MCP authorization and client registration](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization), [ChatGPT custom MCP](https://developers.openai.com/api/docs/guides/custom-mcp-server), [Claude remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp), [GitVerse MCP](https://gitverse.ru/docs/ai/mcp/).
