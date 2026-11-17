@@ -63,7 +63,7 @@ final class ListUserRepositoriesTool
             }
         }
 
-        $response['result']['tools'][] = self::definition();
+        array_unshift($response['result']['tools'], self::definition());
 
         return json_encode($response, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }

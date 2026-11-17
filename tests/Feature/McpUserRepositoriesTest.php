@@ -40,10 +40,10 @@ it('adds the local repository list tool without removing GitVerse tools or pagin
         'id' => 1,
         'method' => 'tools/list',
     ])->assertOk()
-        ->assertJsonPath('result.tools.0.name', 'get_my_user_info')
-        ->assertJsonPath('result.tools.1.name', 'list_user_repositories')
-        ->assertJsonPath('result.tools.1.annotations.readOnlyHint', true)
-        ->assertJsonPath('result.tools.1.inputSchema.properties.per_page.maximum', 50)
+        ->assertJsonPath('result.tools.0.name', 'list_user_repositories')
+        ->assertJsonPath('result.tools.0.annotations.readOnlyHint', true)
+        ->assertJsonPath('result.tools.0.inputSchema.properties.per_page.maximum', 50)
+        ->assertJsonPath('result.tools.1.name', 'get_my_user_info')
         ->assertJsonPath('result.nextCursor', 'next-page');
 
     Http::assertSentCount(1);
