@@ -7,11 +7,14 @@ namespace App\Http\Controllers\Mcp;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Psr\Http\Message\StreamInterface;
 use Symfony\Component\HttpFoundation\Response;
-use App\Models\User;
+use Throwable;
 
 final class McpProxyController
 {
+    private const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+
     public function handle(Request $request): Response
     {
         if (
@@ -52,7 +55,9 @@ final class McpProxyController
                 'stream' => true,
                 'allow_redirects' => false,
                 'connect_timeout' => 10,
-                'timeout' => 0,
+                // GET is a long-lived MCP event stream; POST must finish promptly.
+                'timeout' => $request->isMethod('get') ? 0 : 30,
+                'read_timeout' => 15,
             ])->send(
                 $request->method(),
                 (string) config('gitverse.endpoint'),
@@ -64,16 +69,16 @@ final class McpProxyController
             return response()->json(['error' => 'GitVerse MCP unavailable'], 502);
         }
 
+        $stream = $upstream->toPsrResponse()->getBody();
+
         if (in_array($upstream->status(), [401, 403], true)) {
-            $upstream->toPsrResponse()->getBody()->close();
+            $stream->close();
 
             return response()->json(['error' => 'GitVerse credential rejected'], 502);
         }
 
         $responseHeaders = [
             'Cache-Control' => 'no-cache, no-store',
-            'X-Accel-Buffering' => 'no',
-            'Content-Type' => $upstream->header('Content-Type') ?: 'application/json',
         ];
 
         foreach (['Mcp-Session-Id', 'MCP-Protocol-Version', 'Retry-After'] as $header) {
@@ -82,8 +87,138 @@ final class McpProxyController
             }
         }
 
-        $stream = $upstream->toPsrResponse()->getBody();
+        // A GET subscription is intentionally long-lived. POST responses are not:
+        // the upstream may keep an SSE connection alive even after sending the
+        // JSON-RPC result, which prevents ChatGPT from finishing tool discovery.
+        if ($request->isMethod('get')) {
+            return $this->streamResponse($stream, $upstream->status(), [
+                ...$responseHeaders,
+                'Content-Type' => $upstream->header('Content-Type') ?: 'text/event-stream',
+                'X-Accel-Buffering' => 'no',
+            ]);
+        }
 
+        $message = $request->isMethod('post') ? json_decode($body, true) : null;
+        $isNotification = is_array($message) && !array_key_exists('id', $message);
+
+        if ($request->isMethod('delete') || $upstream->status() === 202 || ($isNotification && $upstream->successful())) {
+            $stream->close();
+
+            return response('', $isNotification && $upstream->successful() ? 202 : $upstream->status(), $responseHeaders);
+        }
+
+        // Preserve non-successful HTTP responses, including 404 for an expired
+        // MCP session (the client must initialize a new one).
+        if (!$upstream->successful()) {
+            return $this->streamResponse($stream, $upstream->status(), [
+                ...$responseHeaders,
+                'Content-Type' => $upstream->header('Content-Type') ?: 'application/json',
+            ]);
+        }
+
+        $requestId = is_array($message) ? ($message['id'] ?? null) : null;
+
+        try {
+            $json = $this->readResponse(
+                $stream,
+                (string) $upstream->header('Content-Type'),
+                $requestId,
+            );
+        } catch (Throwable $exception) {
+            report($exception);
+            $json = null;
+        } finally {
+            $stream->close();
+        }
+
+        if ($json === null) {
+            return response()->json(['error' => 'GitVerse returned an incomplete MCP response'], 502);
+        }
+
+        return response($json, $upstream->status(), [
+            ...$responseHeaders,
+            'Content-Type' => 'application/json',
+        ]);
+    }
+
+    /**
+     * Buffer one JSON-RPC response, not the entire lifetime of an SSE connection.
+     * Tool discovery and ordinary tool calls can then complete as regular JSON.
+     */
+    private function readResponse(StreamInterface $stream, string $contentType, mixed $requestId): ?string
+    {
+        $sse = str_contains(strtolower($contentType), 'text/event-stream');
+        $buffer = '';
+        $deadline = microtime(true) + 25;
+
+        while (!$stream->eof() && microtime(true) < $deadline) {
+            $chunk = $stream->read(8192);
+
+            if ($chunk === '') {
+                usleep(10000);
+
+                continue;
+            }
+
+            $buffer .= $chunk;
+
+            if (strlen($buffer) > self::MAX_RESPONSE_BYTES) {
+                return null;
+            }
+
+            if (!$sse) {
+                if (json_validate($buffer)) {
+                    return $buffer;
+                }
+
+                continue;
+            }
+
+            while (preg_match('/\r?\n\r?\n/', $buffer, $matches, PREG_OFFSET_CAPTURE) === 1) {
+                $offset = $matches[0][1];
+                $separator = $matches[0][0];
+                $event = substr($buffer, 0, $offset);
+                $buffer = substr($buffer, $offset + strlen($separator));
+
+                $result = $this->jsonRpcEvent($event, $requestId);
+                if ($result !== null) {
+                    return $result;
+                }
+            }
+        }
+
+        // Some servers omit the last blank line before closing an SSE response.
+        return $sse ? $this->jsonRpcEvent($buffer, $requestId) : (json_validate($buffer) ? $buffer : null);
+    }
+
+    private function jsonRpcEvent(string $event, mixed $requestId): ?string
+    {
+        $lines = preg_split('/\r?\n/', $event) ?: [];
+        $data = [];
+
+        foreach ($lines as $line) {
+            if (str_starts_with($line, 'data:')) {
+                $data[] = ltrim(substr($line, 5), ' ');
+            }
+        }
+
+        $json = implode("\n", $data);
+        if (!json_validate($json)) {
+            return null;
+        }
+
+        $message = json_decode($json, true);
+
+        return is_array($message) && array_key_exists('id', $message) && $message['id'] === $requestId
+            ? $json
+            : null;
+    }
+
+    /**
+     * GET SSE subscriptions remain transparent; only POST results are normalized.
+     */
+    private function streamResponse(StreamInterface $stream, int $status, array $headers): Response
+    {
         return response()->stream(static function () use ($stream): void {
             try {
                 while (!$stream->eof() && connection_aborted() === 0) {
@@ -98,6 +233,6 @@ final class McpProxyController
             } finally {
                 $stream->close();
             }
-        }, $upstream->status(), $responseHeaders);
+        }, $status, $headers);
     }
 }
