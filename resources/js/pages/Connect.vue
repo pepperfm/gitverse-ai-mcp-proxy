@@ -2,11 +2,7 @@
 import { Head, useForm } from '@inertiajs/vue3';
 import { ref } from 'vue';
 
-const props = defineProps({
-    mode: {
-        type: String,
-        required: true,
-    },
+defineProps({
     clientName: {
         type: String,
         required: true,
@@ -15,32 +11,15 @@ const props = defineProps({
         type: String,
         required: true,
     },
-    authToken: {
-        type: String,
-        default: null,
-    },
 });
 
 const tokenForm = useForm({ gitverse_token: '' });
-const consentForm = useForm({ auth_token: props.authToken ?? '' });
 const showToken = ref(false);
-
-function validateToken(state) {
-    if (!state.gitverse_token || state.gitverse_token.length < 12) {
-        return [{ name: 'gitverse_token', message: 'Введите персональный токен GitVerse (не менее 12 символов).' }];
-    }
-
-    return [];
-}
 
 function submitToken() {
     tokenForm.post('/connect', {
         onSuccess: () => tokenForm.reset('gitverse_token'),
     });
-}
-
-function submitConsent() {
-    consentForm.post('/oauth/authorize');
 }
 </script>
 
@@ -61,7 +40,7 @@ function submitConsent() {
                     <div class="space-y-2">
                         <UBadge color="neutral" variant="subtle" class="rounded-full">Безопасное подключение</UBadge>
                         <h1 class="pt-2 text-2xl font-semibold tracking-tight">
-                            {{ mode === 'consent' ? 'Подтвердите доступ' : 'Подключите GitVerse' }}
+                            Подключите GitVerse
                         </h1>
                         <p class="text-sm leading-relaxed text-slate-400">
                             <span class="break-all font-medium text-slate-200">{{ clientName }}</span>
@@ -74,16 +53,7 @@ function submitConsent() {
                         <div>Имя клиента задаётся самим клиентом, а не проверяется GitVerse Gateway.</div>
                     </div>
 
-                    <UForm v-if="mode === 'consent'" :state="consentForm" class="space-y-4" @submit="submitConsent">
-                        <p class="text-sm leading-relaxed text-slate-400">
-                            Ваш токен уже проверен. Разрешите этому клиенту использовать GitVerse от вашего имени.
-                        </p>
-                        <UButton type="submit" block size="xl" :loading="consentForm.processing" :disabled="consentForm.processing" class="justify-center rounded-xl">
-                            Разрешить доступ
-                        </UButton>
-                    </UForm>
-
-                    <UForm v-else :state="tokenForm" :validate="validateToken" class="space-y-4" @submit="submitToken">
+                    <UForm :state="tokenForm" class="space-y-4" @submit="submitToken">
                         <UFormField label="Персональный токен GitVerse" name="gitverse_token" :error="tokenForm.errors.gitverse_token">
                             <UInput
                                 v-model="tokenForm.gitverse_token"
@@ -98,6 +68,7 @@ function submitConsent() {
                                 placeholder="Вставьте ваш токен"
                                 class="w-full"
                                 :ui="{ base: 'pe-24', trailing: 'pe-2' }"
+                                @update:model-value="tokenForm.clearErrors('gitverse_token')"
                             >
                                 <template #trailing>
                                     <UButton

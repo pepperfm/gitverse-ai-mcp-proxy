@@ -232,7 +232,9 @@ it('does not expose a CSRF prop and follows an Inertia OAuth approval back to th
     preg_match('/data-page="([^"]+)"/', $connect->getContent(), $connectMatches);
 
     $connectPage = json_decode(html_entity_decode($connectMatches[1], ENT_QUOTES), true);
-    expect($connectPage['props'])->not->toHaveKey('csrfToken');
+    expect($connectPage['component'])->toBe('Connect')
+        ->and($connectPage['props'])->not->toHaveKey('csrfToken')
+        ->and($connectPage['props'])->not->toHaveKey('authToken');
 
     $this->post('https://proxy.example.test/connect', [
         'gitverse_token' => 'integration-secret',
@@ -242,7 +244,8 @@ it('does not expose a CSRF prop and follows an Inertia OAuth approval back to th
     preg_match('/data-page="([^"]+)"/', $consent->getContent(), $consentMatches);
 
     $consentPage = json_decode(html_entity_decode($consentMatches[1], ENT_QUOTES), true);
-    expect($consentPage['props'])->not->toHaveKey('csrfToken')
+    expect($consentPage['component'])->toBe('Consent')
+        ->and($consentPage['props'])->not->toHaveKey('csrfToken')
         ->and($consentPage['props']['authToken'])->toBeString();
 
     $response = $this->post('https://proxy.example.test/oauth/authorize', [
@@ -335,8 +338,7 @@ it('completes the real Passport authorization code + PKCE flow', function (): vo
     expect($matches)->toHaveCount(2);
 
     $page = json_decode(html_entity_decode($matches[1], ENT_QUOTES), true);
-    expect($page['component'])->toBe('Connect')
-        ->and($page['props']['mode'])->toBe('consent')
+    expect($page['component'])->toBe('Consent')
         ->and($page['props']['authToken'])->toBeString();
 
     $approved = $this->post('https://proxy.example.test/oauth/authorize', [
