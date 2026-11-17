@@ -9,9 +9,9 @@ use Illuminate\Support\Facades\Http;
 
 final class ListUserRepositoriesTool
 {
-    public const NAME = 'list_user_repositories';
+    public const string NAME = 'list_user_repositories';
 
-    private const API_URL = 'https://api.gitverse.ru/user/repos';
+    private const string API_URL = 'https://api.gitverse.ru/user/repos';
 
     /**
      * @return array<string, mixed>
