@@ -137,6 +137,37 @@ it('saves GitVerse PAT encrypted and associated with a UUID user', function (): 
         ->and($credential->getRawOriginal('encrypted_token'))->not->toContain('test-gitverse-secret');
 });
 
+it('navigates from Inertia PAT submission to OAuth with a full document request', function (): void {
+    $client = registerGatewayClient($this);
+    $oauthUrl = gatewayAuthorizationUrl($client);
+
+    $this->get($oauthUrl)->assertRedirect('https://proxy.example.test/connect');
+
+    Http::fake(['https://api.gitverse.ru/user' => Http::response([
+        'id' => 42, 'login' => 'test-user',
+    ], 200)]);
+
+    $this->get('https://proxy.example.test/connect')->assertOk();
+
+    $this->post('https://proxy.example.test/connect', [
+        'gitverse_token' => 'test-gitverse-secret',
+    ], [
+        'X-Inertia' => 'true',
+        'X-Requested-With' => 'XMLHttpRequest',
+    ])->assertStatus(409)
+        ->assertHeader('X-Inertia-Location', $oauthUrl);
+
+    // The client uses window.location for X-Inertia-Location, so this GET is a
+    // full browser navigation, not a continued cross-origin XHR redirect.
+    $consent = $this->get($oauthUrl)->assertOk();
+    preg_match('/data-page="([^"]+)"/', $consent->getContent(), $matches);
+
+    $page = json_decode(html_entity_decode($matches[1], ENT_QUOTES), true);
+
+    expect($page['component'])->toBe('Consent')
+        ->and($page['props']['authToken'])->toBeString();
+});
+
 it('rejects an invalid GitVerse PAT with a specific message', function (): void {
     $client = registerGatewayClient($this);
     Http::fake(['https://api.gitverse.ru/user' => Http::response(['error' => 'Unauthorized'], 401)]);

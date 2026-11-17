@@ -5,18 +5,18 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Mcp;
 
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Passport\ClientRepository;
-use Inertia\Response;
+use Inertia\Response as InertiaResponse;
+use Symfony\Component\HttpFoundation\Response;
 use App\Models\GitVerseCredential;
 use App\Models\User;
 
 final class GitVerseConnectController
 {
-    public function create(Request $request, ClientRepository $clients): Response
+    public function create(Request $request, ClientRepository $clients): InertiaResponse
     {
         $query = $this->oauthQuery($request);
         $client = $clients->find((string) ($query['client_id'] ?? ''));
@@ -31,7 +31,7 @@ final class GitVerseConnectController
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request): Response
     {
         $this->oauthQuery($request);
 
@@ -117,9 +117,18 @@ final class GitVerseConnectController
 
         auth('web')->login($user);
         $request->session()->regenerate();
-        $request->session()->put('mcp.authorization_url', $request->session()->get('url.intended'));
 
-        return redirect()->intended('/up');
+        $authorizationUrl = $request->session()->pull('url.intended');
+        $request->session()->put('mcp.authorization_url', $authorizationUrl);
+
+        // OAuth navigation must leave the Inertia XHR lifecycle. Otherwise the
+        // browser follows Passport redirects to an external callback via XHR,
+        // where the client's CORS policy rejects the request.
+        if ($request->header('X-Inertia')) {
+            return inertia()->location($authorizationUrl);
+        }
+
+        return redirect()->to($authorizationUrl);
     }
 
     /**
