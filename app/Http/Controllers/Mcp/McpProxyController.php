@@ -60,19 +60,13 @@ final class McpProxyController
         }
 
         try {
-            $options = [
+            $upstream = Http::withHeaders($headers)->withOptions([
                 'stream' => true,
                 'allow_redirects' => false,
                 'connect_timeout' => 10,
-                // GET is a long-lived MCP event stream; POST must finish promptly.
-                'timeout' => $request->isMethod('get') ? 0 : 30,
-            ];
-
-            if (!$request->isMethod('get')) {
-                $options['read_timeout'] = 15;
-            }
-
-            $upstream = Http::withHeaders($headers)->withOptions($options)->send(
+                'timeout' => 30,
+                'read_timeout' => 15,
+            ])->send(
                 $request->method(),
                 (string) config('gitverse.endpoint'),
                 $request->isMethod('post') ? ['body' => $body] : [],
@@ -99,17 +93,6 @@ final class McpProxyController
             if ($upstream->header($header)) {
                 $responseHeaders[$header] = $upstream->header($header);
             }
-        }
-
-        // A GET subscription is intentionally long-lived. POST responses are not:
-        // the upstream may keep an SSE connection alive even after sending the
-        // JSON-RPC result, which prevents ChatGPT from finishing tool discovery.
-        if ($request->isMethod('get')) {
-            return $this->streamResponse($stream, $upstream->status(), [
-                ...$responseHeaders,
-                'Content-Type' => $upstream->header('Content-Type') ?: 'text/event-stream',
-                'X-Accel-Buffering' => 'no',
-            ]);
         }
 
         $message = $request->isMethod('post') ? json_decode($body, true) : null;
@@ -229,7 +212,7 @@ final class McpProxyController
     }
 
     /**
-     * GET SSE subscriptions remain transparent; only POST results are normalized.
+     * Preserve upstream HTTP error bodies without rewriting their status codes.
      */
     private function streamResponse(StreamInterface $stream, int $status, array $headers): Response
     {
