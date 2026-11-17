@@ -49,6 +49,27 @@ it('adds the local repository list tool without removing GitVerse tools or pagin
     Http::assertSentCount(1);
 });
 
+it('preserves empty JSON objects in upstream tool schemas', function (): void {
+    Http::fake(['https://mcp.gitverse.ru*' => Http::response(
+        '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"get_my_user_info","inputSchema":{"type":"object","properties":{}},"annotations":{}}]}}',
+        200,
+        ['Content-Type' => 'application/json'],
+    )]);
+
+    $response = $this->postJson('/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => 'tools/list',
+    ])->assertOk()
+        ->assertJsonPath('result.tools.0.name', 'list_user_repositories')
+        ->assertJsonPath('result.tools.1.name', 'get_my_user_info');
+
+    $upstream = json_decode($response->getContent())->result->tools[1];
+
+    expect($upstream->inputSchema->properties)->toBeInstanceOf(stdClass::class)
+        ->and($upstream->annotations)->toBeInstanceOf(stdClass::class);
+});
+
 it('does not repeat the local tool on later discovery pages', function (): void {
     Http::fake(['https://mcp.gitverse.ru*' => Http::response([
         'jsonrpc' => '2.0',

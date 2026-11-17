@@ -51,19 +51,19 @@ final class ListUserRepositoriesTool
 
     public static function appendToToolsList(string $json): string
     {
-        $response = json_decode($json, true);
+        $response = json_decode($json);
 
-        if (!is_array($response) || !is_array($response['result']['tools'] ?? null)) {
+        if (!is_array($response->result->tools ?? null)) {
             return $json;
         }
 
-        foreach ($response['result']['tools'] as $tool) {
-            if (is_array($tool) && ($tool['name'] ?? null) === self::NAME) {
+        foreach ($response->result->tools as $tool) {
+            if (($tool->name ?? null) === self::NAME) {
                 return $json;
             }
         }
 
-        array_unshift($response['result']['tools'], self::definition());
+        array_unshift($response->result->tools, self::definition());
 
         return json_encode($response, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }

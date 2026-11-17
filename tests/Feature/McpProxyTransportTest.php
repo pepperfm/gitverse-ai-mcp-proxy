@@ -42,7 +42,7 @@ it('rejects optional GET subscriptions without blocking subsequent tools/list PO
         'jsonrpc' => '2.0',
         'id' => 5,
         'method' => 'tools/list',
-    ])->assertOk()->assertJsonPath('result.tools.0.name', 'get_my_user_info');
+    ])->assertOk()->assertJsonPath('result.tools.1.name', 'get_my_user_info');
 
     Http::assertSentCount(1);
 });
@@ -164,7 +164,7 @@ it('finishes SSE tools/list at the matching JSON-RPC result rather than streamin
         ->assertHeader('Content-Type', 'application/json')
         ->assertHeader('Mcp-Session-Id', 'upstream-session')
         ->assertJsonPath('id', 2)
-        ->assertJsonPath('result.tools.0.name', 'get_my_user_info');
+        ->assertJsonPath('result.tools.1.name', 'get_my_user_info');
 
     Http::assertSent(fn ($request): bool => $request->hasHeader('Mcp-Session-Id', 'upstream-session'));
 });
