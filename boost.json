@@ -16,6 +16,8 @@
         "deploying-to-cloud",
         "laravel-best-practices",
         "testing-best-practices",
-        "passport-development"
+        "passport-development",
+        "inertia-vue-development",
+        "tailwindcss-development"
     ]
 }
