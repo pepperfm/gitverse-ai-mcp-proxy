@@ -29,3 +29,7 @@ cghooks.lock
 .cursor
 .grok
 .mcp.json
+
+# Nuxt UI / Vite generated declarations
+/auto-imports.d.ts
+/components.d.ts

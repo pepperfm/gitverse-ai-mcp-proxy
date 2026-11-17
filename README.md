@@ -19,12 +19,12 @@ The AI client never receives the actual GitVerse PAT. Each user's Passport token
 
 Requirements: PHP 8.5, Composer, PostgreSQL 17, HTTPS reverse proxy.
 
-1. Update dependencies and **regenerate composer.lock**: `composer update laravel/passport --with-all-dependencies` (or a full `composer update`, since Passport is new and Sanctum was removed). **The lockfile included in this commit was generated before Passport was added and must be regenerated before `composer install`.** Commit the new lockfile to master.
+1. Resolve the new Inertia dependency and update the lockfiles: `composer update inertiajs/inertia-laravel --with-all-dependencies` and `bun install` on PHP 8.5. Commit the regenerated `composer.lock` and `bun.lock` before deploying or using frozen installs.
 2. `cp .env.example .env`; set `APP_URL=https://your-domain.example`, PostgreSQL credentials, `APP_ENV=production`, `APP_DEBUG=false`.
 3. `php artisan key:generate`.
 4. `php artisan passport:keys`. Keep `storage/oauth-private.key` and `storage/oauth-public.key` private; do not commit them.
 5. For a disposable development database, run `php artisan migrate:fresh` and `php artisan optimize`. This resets all data.
-6. In ChatGPT Plugins, create a custom MCP connection pointing to `https://your-domain.example/mcp` and select OAuth.
+6. Build frontend assets with `bun run build` (or use `bun run dev` locally). In ChatGPT Plugins, create a custom MCP connection pointing to `https://your-domain.example/mcp` and select OAuth.
 7. Paste your personal GitVerse PAT on the connection page, then approve on the following consent screen. Test a read-only GitVerse tool first.
 
 The project provides its own UUID-compatible Passport migrations. **Do not run `passport:install`, `install:api --passport`, or publish Passport migrations**, as that could introduce duplicate tables or migrations.
