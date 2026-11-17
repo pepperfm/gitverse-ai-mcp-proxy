@@ -118,8 +118,8 @@ it('saves GitVerse PAT encrypted and associated with a UUID user', function (): 
     $client = registerGatewayClient($this);
     $oauthUrl = gatewayAuthorizationUrl($client);
 
-    Http::fake(['https://mcp.gitverse.ru*' => Http::response([
-        'jsonrpc' => '2.0', 'id' => 1, 'result' => ['protocolVersion' => '2025-03-26'],
+    Http::fake(['https://api.gitverse.ru/user' => Http::response([
+        'id' => 42, 'login' => 'test-user',
     ], 200)]);
 
     $this->withSession(['url.intended' => $oauthUrl])
@@ -137,13 +137,81 @@ it('saves GitVerse PAT encrypted and associated with a UUID user', function (): 
         ->and($credential->getRawOriginal('encrypted_token'))->not->toContain('test-gitverse-secret');
 });
 
-it('rejects a GitVerse credential when the upstream MCP refuses it', function (): void {
+it('rejects an invalid GitVerse PAT with a specific message', function (): void {
     $client = registerGatewayClient($this);
-    Http::fake(['https://mcp.gitverse.ru*' => Http::response(['error' => 'Unauthorized'], 401)]);
+    Http::fake(['https://api.gitverse.ru/user' => Http::response(['error' => 'Unauthorized'], 401)]);
 
     $this->withSession(['url.intended' => gatewayAuthorizationUrl($client)])
         ->post('https://proxy.example.test/connect', ['gitverse_token' => 'invalid-gitverse-token'])
-        ->assertSessionHasErrors('gitverse_token');
+        ->assertSessionHasErrors(['gitverse_token' => 'GitVerse отклонил токен. Проверь его и попробуй снова.']);
+
+    expect(User::query()->count())->toBe(0);
+});
+
+it('validates GitVerse tokens through the authenticated user API instead of MCP initialize', function (): void {
+    $client = registerGatewayClient($this);
+
+    Http::fake(['https://api.gitverse.ru/user' => Http::response([
+        'id' => 42, 'login' => 'test-user',
+    ])]);
+
+    $this->withSession(['url.intended' => gatewayAuthorizationUrl($client)])
+        ->post('https://proxy.example.test/connect', [
+            'gitverse_token' => 'test-gitverse-secret',
+        ])->assertRedirect();
+
+    Http::assertSentCount(1);
+    Http::assertSent(static fn ($request): bool => $request->method() === 'GET'
+        && $request->url() === 'https://api.gitverse.ru/user'
+        && $request->hasHeader('Authorization', 'Bearer test-gitverse-secret')
+        && $request->hasHeader('Accept', 'application/vnd.gitverse.object+json;version=1'));
+});
+
+it('distinguishes GitVerse token permissions from service errors', function (): void {
+    $client = registerGatewayClient($this);
+
+    foreach ([
+        403 => 'У токена нет права на чтение данных пользователя GitVerse.',
+        429 => 'GitVerse ограничил число запросов. Попробуй позже.',
+        503 => 'Не удалось проверить токен: GitVerse API вернул HTTP 503.',
+    ] as $status => $message) {
+        Http::fake(['https://api.gitverse.ru/user' => Http::response(['error' => 'upstream details'], $status)]);
+
+        $this->withSession(['url.intended' => gatewayAuthorizationUrl($client)])
+            ->post('https://proxy.example.test/connect', [
+                'gitverse_token' => 'test-gitverse-secret',
+            ])->assertSessionHasErrors(['gitverse_token' => $message]);
+
+        expect(User::query()->count())->toBe(0);
+    }
+});
+
+it('rejects a malformed successful GitVerse API response without storing a PAT', function (): void {
+    $client = registerGatewayClient($this);
+
+    Http::fake(['https://api.gitverse.ru/user' => Http::response(['invalid' => true], 200)]);
+
+    $this->withSession(['url.intended' => gatewayAuthorizationUrl($client)])
+        ->post('https://proxy.example.test/connect', [
+            'gitverse_token' => 'test-gitverse-secret',
+        ])->assertSessionHasErrors(['gitverse_token' => 'GitVerse API вернул некорректный ответ. Попробуй позже.']);
+
+    expect(User::query()->count())->toBe(0);
+});
+
+it('reports a connection failure without logging or exposing the PAT', function (): void {
+    $client = registerGatewayClient($this);
+
+    Http::fake([
+        'https://api.gitverse.ru/user' => static function (): never {
+            throw new \Illuminate\Http\Client\ConnectionException('Connection timed out.');
+        },
+    ]);
+
+    $this->withSession(['url.intended' => gatewayAuthorizationUrl($client)])
+        ->post('https://proxy.example.test/connect', [
+            'gitverse_token' => 'test-gitverse-secret',
+        ])->assertSessionHasErrors(['gitverse_token' => 'Не удалось связаться с GitVerse API. Попробуй позже.']);
 
     expect(User::query()->count())->toBe(0);
 });
@@ -156,11 +224,9 @@ it('does not expose a CSRF prop and follows an Inertia OAuth approval back to th
 
     $this->get($oauthUrl)->assertRedirect('https://proxy.example.test/connect');
 
-    Http::fake(['https://mcp.gitverse.ru*' => Http::response([
-        'jsonrpc' => '2.0',
-        'id' => 1,
-        'result' => ['protocolVersion' => '2025-03-26'],
-    ])]);
+    Http::fake(['https://api.gitverse.ru/user' => Http::response([
+        'id' => 42, 'login' => 'test-user',
+    ], 200)]);
 
     $connect = $this->get('https://proxy.example.test/connect')->assertOk();
     preg_match('/data-page="([^"]+)"/', $connect->getContent(), $connectMatches);
@@ -241,8 +307,8 @@ it('completes the real Passport authorization code + PKCE flow', function (): vo
 
     $this->get($oauthUrl)->assertRedirect('https://proxy.example.test/connect');
 
-    Http::fake(['https://mcp.gitverse.ru*' => Http::response([
-        'jsonrpc' => '2.0', 'id' => 1, 'result' => ['protocolVersion' => '2025-03-26'],
+    Http::fake(['https://api.gitverse.ru/user' => Http::response([
+        'id' => 42, 'login' => 'test-user',
     ], 200)]);
 
     $this->get('https://proxy.example.test/connect')->assertOk();

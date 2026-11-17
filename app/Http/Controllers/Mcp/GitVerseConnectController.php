@@ -42,30 +42,51 @@ final class GitVerseConnectController
 
         $personalToken = $validated['gitverse_token'];
 
+        // Validate the PAT through the regular GitVerse API. An MCP initialize
+        // response may remain open as SSE and make a synchronous HTTP probe
+        // time out even when the server and token are valid.
         try {
             $probe = Http::withToken($personalToken)
-                ->withHeaders(['Accept' => 'application/json, text/event-stream'])
+                ->accept('application/vnd.gitverse.object+json;version=1')
                 ->withOptions(['allow_redirects' => false])
-                ->timeout(15)
-                ->post((string) config('gitverse.endpoint'), [
-                    'jsonrpc' => '2.0',
-                    'id' => 1,
-                    'method' => 'initialize',
-                    'params' => [
-                        'protocolVersion' => '2025-03-26',
-                        'capabilities' => new \stdClass,
-                        'clientInfo' => ['name' => 'gitverse-ai-mcp-proxy', 'version' => '1.0.0'],
-                    ],
-                ]);
-        } catch (ConnectionException) {
+                ->connectTimeout(5)
+                ->timeout(12)
+                ->get('https://api.gitverse.ru/user');
+        } catch (ConnectionException $exception) {
+            report($exception);
+
             return back()->withErrors([
-                'gitverse_token' => 'GitVerse MCP недоступен. Попробуй позже.',
+                'gitverse_token' => 'Не удалось связаться с GitVerse API. Попробуй позже.',
+            ]);
+        }
+
+        if ($probe->status() === 401) {
+            return back()->withErrors([
+                'gitverse_token' => 'GitVerse отклонил токен. Проверь его и попробуй снова.',
+            ]);
+        }
+
+        if ($probe->status() === 403) {
+            return back()->withErrors([
+                'gitverse_token' => 'У токена нет права на чтение данных пользователя GitVerse.',
+            ]);
+        }
+
+        if ($probe->status() === 429) {
+            return back()->withErrors([
+                'gitverse_token' => 'GitVerse ограничил число запросов. Попробуй позже.',
             ]);
         }
 
         if (!$probe->successful()) {
             return back()->withErrors([
-                'gitverse_token' => 'GitVerse не принял токен или не ответил на MCP initialize.',
+                'gitverse_token' => 'Не удалось проверить токен: GitVerse API вернул HTTP '.$probe->status().'.',
+            ]);
+        }
+
+        if (!is_string($probe->json('login')) || $probe->json('login') === '') {
+            return back()->withErrors([
+                'gitverse_token' => 'GitVerse API вернул некорректный ответ. Попробуй позже.',
             ]);
         }
 

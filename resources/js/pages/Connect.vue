@@ -97,14 +97,16 @@ function submitConsent() {
                                 spellcheck="false"
                                 placeholder="Вставьте ваш токен"
                                 class="w-full"
+                                :ui="{ base: 'pe-24', trailing: 'pe-2' }"
                             >
                                 <template #trailing>
                                     <UButton
                                         type="button"
                                         color="neutral"
                                         variant="link"
-                                        size="xs"
+                                        size="sm"
                                         :aria-label="showToken ? 'Скрыть токен' : 'Показать токен'"
+                                        :aria-pressed="showToken"
                                         @click="showToken = !showToken"
                                     >
                                         {{ showToken ? 'Скрыть' : 'Показать' }}
