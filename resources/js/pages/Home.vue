@@ -19,7 +19,7 @@ const repositoryUrl = 'https://github.com/pepperfm/gitverse-ai-mcp-proxy';
 
             <header class="relative mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-4 sm:px-8 sm:py-7">
                 <a href="/" class="flex items-center gap-3 text-[15px] font-semibold tracking-tight">
-                    <img src="/images/gitverse.png" alt="" width="36" height="36" class="size-9 rounded-xl bg-slate-800 object-contain p-1.5" />
+                    <img src="/images/gitverse.svg" alt="" width="36" height="36" class="size-9 rounded-xl bg-slate-800 object-contain p-1.5" />
                     <span>GitVerse <span class="text-slate-400">Gateway</span></span>
                 </a>
                 <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer" class="text-sm text-slate-400 transition hover:text-white">

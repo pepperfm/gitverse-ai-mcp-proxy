@@ -40,7 +40,7 @@ const tokenError = computed(() => page.props.errors?.gitverse_token ?? null);
         <main class="gateway-background flex min-h-dvh items-center justify-center px-4 py-8 text-white sm:px-6">
             <div class="w-full max-w-[440px]">
                 <a href="/" class="mx-auto mb-7 flex w-fit items-center gap-3 text-sm font-semibold tracking-tight">
-                    <img src="/images/gitverse.png" alt="" width="36" height="36" class="size-9 rounded-xl bg-slate-800 object-contain p-1.5" />
+                    <img src="/images/gitverse.svg" alt="" width="36" height="36" class="size-9 rounded-xl bg-slate-800 object-contain p-1.5" />
                     <span>GitVerse <span class="text-slate-400">Gateway</span></span>
                 </a>
 
