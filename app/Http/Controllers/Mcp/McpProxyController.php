@@ -51,14 +51,19 @@ final class McpProxyController
         }
 
         try {
-            $upstream = Http::withHeaders($headers)->withOptions([
+            $options = [
                 'stream' => true,
                 'allow_redirects' => false,
                 'connect_timeout' => 10,
                 // GET is a long-lived MCP event stream; POST must finish promptly.
                 'timeout' => $request->isMethod('get') ? 0 : 30,
-                'read_timeout' => $request->isMethod('get') ? 0 : 15,
-            ])->send(
+            ];
+
+            if (!$request->isMethod('get')) {
+                $options['read_timeout'] = 15;
+            }
+
+            $upstream = Http::withHeaders($headers)->withOptions($options)->send(
                 $request->method(),
                 (string) config('gitverse.endpoint'),
                 $request->isMethod('post') ? ['body' => $body] : [],
