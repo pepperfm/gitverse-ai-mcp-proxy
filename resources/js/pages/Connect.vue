@@ -1,6 +1,6 @@
 <script setup>
-import { Head, usePage } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { Head, useForm } from '@inertiajs/vue3';
+import { ref } from 'vue';
 
 const props = defineProps({
     mode: {
@@ -15,20 +15,33 @@ const props = defineProps({
         type: String,
         required: true,
     },
-    csrfToken: {
-        type: String,
-        required: true,
-    },
     authToken: {
         type: String,
         default: null,
     },
 });
 
-const page = usePage();
-const personalToken = ref('');
+const tokenForm = useForm({ gitverse_token: '' });
+const consentForm = useForm({ auth_token: props.authToken ?? '' });
 const showToken = ref(false);
-const tokenError = computed(() => page.props.errors?.gitverse_token ?? null);
+
+function validateToken(state) {
+    if (!state.gitverse_token || state.gitverse_token.length < 12) {
+        return [{ name: 'gitverse_token', message: 'Введите персональный токен GitVerse (не менее 12 символов).' }];
+    }
+
+    return [];
+}
+
+function submitToken() {
+    tokenForm.post('/connect', {
+        onSuccess: () => tokenForm.reset('gitverse_token'),
+    });
+}
+
+function submitConsent() {
+    consentForm.post('/oauth/authorize');
+}
 </script>
 
 <template>
@@ -61,23 +74,19 @@ const tokenError = computed(() => page.props.errors?.gitverse_token ?? null);
                         <div>Имя клиента задаётся самим клиентом, а не проверяется GitVerse Gateway.</div>
                     </div>
 
-                    <form v-if="mode === 'consent'" method="post" action="/oauth/authorize" class="space-y-4">
-                        <input type="hidden" name="_token" :value="csrfToken" />
-                        <input type="hidden" name="auth_token" :value="authToken" />
+                    <UForm v-if="mode === 'consent'" :state="consentForm" class="space-y-4" @submit="submitConsent">
                         <p class="text-sm leading-relaxed text-slate-400">
                             Ваш токен уже проверен. Разрешите этому клиенту использовать GitVerse от вашего имени.
                         </p>
-                        <UButton type="submit" block size="xl" class="justify-center rounded-xl">
+                        <UButton type="submit" block size="xl" :loading="consentForm.processing" :disabled="consentForm.processing" class="justify-center rounded-xl">
                             Разрешить доступ
                         </UButton>
-                    </form>
+                    </UForm>
 
-                    <form v-else method="post" action="/connect" autocomplete="off" class="space-y-4">
-                        <input type="hidden" name="_token" :value="csrfToken" />
-                        <UFormField label="Персональный токен GitVerse" name="gitverse_token" :error="tokenError">
+                    <UForm v-else :state="tokenForm" :validate="validateToken" class="space-y-4" @submit="submitToken">
+                        <UFormField label="Персональный токен GitVerse" name="gitverse_token" :error="tokenForm.errors.gitverse_token">
                             <UInput
-                                v-model="personalToken"
-                                name="gitverse_token"
+                                v-model="tokenForm.gitverse_token"
                                 :type="showToken ? 'text' : 'password'"
                                 size="xl"
                                 required
@@ -103,10 +112,10 @@ const tokenError = computed(() => page.props.errors?.gitverse_token ?? null);
                                 </template>
                             </UInput>
                         </UFormField>
-                        <UButton type="submit" block size="xl" class="justify-center rounded-xl">
+                        <UButton type="submit" block size="xl" :loading="tokenForm.processing" :disabled="tokenForm.processing" class="justify-center rounded-xl">
                             Проверить токен
                         </UButton>
-                    </form>
+                    </UForm>
 
                     <p class="mt-6 text-xs leading-relaxed text-slate-500">
                         Токен хранится зашифрованным на сервере и не передаётся ChatGPT.

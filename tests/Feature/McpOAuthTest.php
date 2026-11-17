@@ -148,6 +148,55 @@ it('rejects a GitVerse credential when the upstream MCP refuses it', function ()
     expect(User::query()->count())->toBe(0);
 });
 
+it('does not expose a CSRF prop and follows an Inertia OAuth approval back to the client', function (): void {
+    $this->artisan('passport:keys', ['--force' => true])->assertExitCode(0);
+
+    $clientId = registerGatewayClient($this);
+    $oauthUrl = gatewayAuthorizationUrl($clientId);
+
+    $this->get($oauthUrl)->assertRedirect('https://proxy.example.test/connect');
+
+    Http::fake(['https://mcp.gitverse.ru*' => Http::response([
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'result' => ['protocolVersion' => '2025-03-26'],
+    ])]);
+
+    $connect = $this->get('https://proxy.example.test/connect')->assertOk();
+    preg_match('/data-page="([^"]+)"/', $connect->getContent(), $connectMatches);
+
+    $connectPage = json_decode(html_entity_decode($connectMatches[1], ENT_QUOTES), true);
+    expect($connectPage['props'])->not->toHaveKey('csrfToken');
+
+    $this->post('https://proxy.example.test/connect', [
+        'gitverse_token' => 'integration-secret',
+    ])->assertRedirect($oauthUrl);
+
+    $consent = $this->get($oauthUrl)->assertOk();
+    preg_match('/data-page="([^"]+)"/', $consent->getContent(), $consentMatches);
+
+    $consentPage = json_decode(html_entity_decode($consentMatches[1], ENT_QUOTES), true);
+    expect($consentPage['props'])->not->toHaveKey('csrfToken')
+        ->and($consentPage['props']['authToken'])->toBeString();
+
+    $response = $this->post('https://proxy.example.test/oauth/authorize', [
+        'auth_token' => $consentPage['props']['authToken'],
+    ], [
+        'X-Inertia' => 'true',
+        'X-Requested-With' => 'XMLHttpRequest',
+    ]);
+
+    $response->assertStatus(409)
+        ->assertHeader('X-Inertia-Location');
+
+    $callback = (string) $response->headers->get('X-Inertia-Location');
+
+    expect($callback)->toStartWith('https://chatgpt.com/connector_platform_oauth_redirect?');
+    parse_str((string) parse_url($callback, PHP_URL_QUERY), $parameters);
+    expect($parameters['state'])->toBe('oauth-test')
+        ->and($parameters['code'])->toBeString();
+});
+
 it('challenges unauthenticated MCP requests with OAuth metadata', function (): void {
     $this->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list'])
         ->assertUnauthorized()->assertHeader('WWW-Authenticate');

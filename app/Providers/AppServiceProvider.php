@@ -42,7 +42,6 @@ class AppServiceProvider extends ServiceProvider
             'clientName' => (string) $parameters['client']->name,
             'callbackHost' => (string) parse_url($parameters['request']->query('redirect_uri'), PHP_URL_HOST),
             'authToken' => $parameters['authToken'],
-            'csrfToken' => csrf_token(),
         ]));
 
         RateLimiter::for(

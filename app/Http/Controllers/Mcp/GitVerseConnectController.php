@@ -28,7 +28,6 @@ final class GitVerseConnectController
 
         return Inertia::render('Connect', [
             'mode' => 'token',
-            'csrfToken' => csrf_token(),
             'clientName' => $client->name,
             'callbackHost' => parse_url($query['redirect_uri'], PHP_URL_HOST),
         ]);
