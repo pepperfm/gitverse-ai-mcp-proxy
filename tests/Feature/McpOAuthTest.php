@@ -199,7 +199,7 @@ it('rejects a malformed successful GitVerse API response without storing a PAT',
     expect(User::query()->count())->toBe(0);
 });
 
-it('reports a connection failure without logging or exposing the PAT', function (): void {
+it('handles GitVerse API connection failures without storing the PAT', function (): void {
     $client = registerGatewayClient($this);
 
     Http::fake([
