@@ -23,6 +23,29 @@ beforeEach(function (): void {
     Passport::actingAs($user, ['gitverse:access']);
 });
 
+it('rejects optional GET subscriptions without blocking subsequent tools/list POST requests', function (): void {
+    Http::fake(['https://mcp.gitverse.ru*' => Http::response(
+        '{"jsonrpc":"2.0","id":5,"result":{"tools":[{"name":"get_my_user_info","inputSchema":{"type":"object"}}]}}',
+        200,
+        ['Content-Type' => 'application/json'],
+    )]);
+
+    $this->get('/mcp', ['Accept' => 'text/event-stream'])
+        ->assertStatus(405)
+        ->assertHeader('Allow', 'POST, DELETE')
+        ->assertContent('');
+
+    Http::assertNothingSent();
+
+    $this->postJson('/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 5,
+        'method' => 'tools/list',
+    ])->assertOk()->assertJsonPath('result.tools.0.name', 'get_my_user_info');
+
+    Http::assertSentCount(1);
+});
+
 it('finishes initialize as JSON and preserves the upstream session header', function (): void {
     Http::fake(['https://mcp.gitverse.ru*' => Http::response(
         '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"GitVerse","version":"1"}}}',
