@@ -17,6 +17,23 @@ final class McpProxyController
 
     public function handle(Request $request): Response
     {
+        $diagnostics = McpInitializeDiagnostics::start($request);
+
+        try {
+            $response = $this->proxy($request, $diagnostics);
+        } catch (Throwable $exception) {
+            $diagnostics?->failed($exception);
+
+            throw $exception;
+        }
+
+        $diagnostics?->finished($response);
+
+        return $response;
+    }
+
+    private function proxy(Request $request, ?McpInitializeDiagnostics $diagnostics): Response
+    {
         if (
             $request->hasHeader('Origin')
             && !in_array($request->header('Origin'), config('gitverse.allowed_origins', []), true)
@@ -98,6 +115,12 @@ final class McpProxyController
             return response()->json(['error' => 'GitVerse MCP unavailable'], 502);
         }
 
+        $diagnostics?->upstream(
+            $upstream->status(),
+            $upstream->header('Content-Type'),
+            $upstream->header('Mcp-Session-Id') !== '',
+        );
+
         $stream = $upstream->toPsrResponse()->getBody();
 
         if (in_array($upstream->status(), [401, 403], true)) {
@@ -148,15 +171,18 @@ final class McpProxyController
             $stream->close();
         }
 
+        $diagnostics?->upstreamBody($json);
+
         if ($json === null) {
             return response()->json(['error' => 'GitVerse returned an incomplete MCP response'], 502);
         }
 
         if (is_array($message) && ($message['method'] ?? null) === 'initialize') {
-            $response = json_decode($json, true);
+            // Preserve JSON object types, including empty MCP capability objects.
+            $response = json_decode($json);
 
-            if (is_array($response['result']['serverInfo'] ?? null)) {
-                $response['result']['serverInfo']['websiteUrl'] = OAuthMetadataController::base();
+            if (($response->result->serverInfo ?? null) instanceof \stdClass) {
+                $response->result->serverInfo->websiteUrl = OAuthMetadataController::base();
 
                 $json = json_encode($response, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             }

@@ -64,6 +64,10 @@ This destroys all data, including connected accounts and GitVerse PATs. Any clou
 - `GET, POST /connect` (PAT login/verification)
 - `POST, DELETE /mcp` (Streamable HTTP proxy; GET returns 405)
 
+## MCP initialize diagnostics
+
+Set `MCP_INITIALIZE_DIAGNOSTICS=true` temporarily and refresh the Laravel configuration cache. The gateway records warning-level `MCP initialize` events for request metadata, upstream HTTP status, upstream JSON shape and the outgoing HTTP/JSON response. Events share a generated trace ID. It does not log authorization values, session IDs, RPC IDs, raw request/response bodies or client/server names. Switch the flag off after troubleshooting.
+
 ## Tests
 
 Use a **separate PostgreSQL test database**, then run:

@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Laravel\Passport\Passport;
 
 uses(RefreshDatabase::class);
@@ -48,7 +49,7 @@ it('rejects optional GET subscriptions without blocking subsequent tools/list PO
 
 it('finishes initialize as JSON and preserves the upstream session header', function (): void {
     Http::fake(['https://mcp.gitverse.ru*' => Http::response(
-        '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"GitVerse","version":"1"}}}',
+        '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"logging":{},"tools":{}},"serverInfo":{"name":"GitVerse","version":"1"}}}',
         200,
         ['Content-Type' => 'application/json', 'Mcp-Session-Id' => 'upstream-session'],
     )]);
@@ -72,7 +73,68 @@ it('finishes initialize as JSON and preserves the upstream session header', func
         ->assertJsonPath('result.serverInfo.version', '1')
         ->assertJsonPath('result.serverInfo.websiteUrl', 'https://proxy.example.test');
 
+    $result = json_decode($response->getContent())->result;
+    expect($result->capabilities->logging)->toBeInstanceOf(stdClass::class)
+        ->and($result->capabilities->tools)->toBeInstanceOf(stdClass::class);
+
     Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer personal-gitverse-token'));
+});
+
+it('logs initialize transport and JSON shapes without recording secrets', function (): void {
+    Config::set('gitverse.initialize_diagnostics', true);
+
+    $entries = [];
+    Log::shouldReceive('warning')->times(4)->andReturnUsing(function (string $message, array $context) use (&$entries): void {
+        $entries[$message] = $context;
+    });
+
+    Http::fake(['https://mcp.gitverse.ru*' => Http::response(
+        '{"jsonrpc":"2.0","id":"private-rpc-id","result":{"protocolVersion":"2025-11-25","capabilities":{"logging":{},"tools":{"listChanged":true}},"serverInfo":{"name":"private-server-name","version":"private-server-version"}}}',
+        200,
+        ['Content-Type' => 'application/json', 'Mcp-Session-Id' => 'private-session-id'],
+    )]);
+
+    $this->postJson('/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 'private-rpc-id',
+        'method' => 'initialize',
+        'params' => [
+            'protocolVersion' => '2025-11-25',
+            'capabilities' => new stdClass,
+            'clientInfo' => ['name' => 'private-client-name', 'version' => '1'],
+        ],
+    ])->assertOk();
+
+    expect($entries['MCP initialize upstream']['status'])->toBe(200)
+        ->and($entries['MCP initialize upstream']['has_session_id'])->toBeTrue()
+        ->and($entries['MCP initialize upstream_body']['logging_type'])->toBe('stdClass')
+        ->and($entries['MCP initialize response']['logging_type'])->toBe('stdClass')
+        ->and($entries['MCP initialize response']['website_url_present'])->toBeTrue()
+        ->and($entries['MCP initialize response']['id_matches'])->toBeTrue()
+        ->and(array_unique(array_column($entries, 'trace_id')))->toHaveCount(1);
+
+    $logged = json_encode($entries, JSON_THROW_ON_ERROR);
+
+    foreach (['personal-gitverse-token', 'private-session-id', 'private-rpc-id', 'private-client-name', 'private-server-name', 'private-server-version'] as $secret) {
+        expect($logged)->not->toContain($secret);
+    }
+});
+
+it('does not log initialize diagnostics unless enabled', function (): void {
+    Config::set('gitverse.initialize_diagnostics', false);
+    Log::shouldReceive('warning')->never();
+
+    Http::fake(['https://mcp.gitverse.ru*' => Http::response(
+        '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"GitVerse","version":"dev"}}}',
+        200,
+        ['Content-Type' => 'application/json'],
+    )]);
+
+    $this->postJson('/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => 'initialize',
+    ])->assertOk();
 });
 
 it('finishes SSE tools/list at the matching JSON-RPC result rather than streaming forever', function (): void {
