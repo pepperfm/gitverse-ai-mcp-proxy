@@ -8,9 +8,9 @@ The UI is a minimal Laravel Inertia + Vue 3 + Nuxt UI site: a one-screen homepag
 
 1. A person adds `https://your-domain.example/mcp` to ChatGPT or another remote MCP client that supports OAuth and Dynamic Client Registration.
 2. The client registers a public OAuth client and starts Authorization Code + PKCE.
-3. Laravel shows the **single Blade template** asking for the user's GitVerse PAT and shows the real OAuth callback domain.
-4. The PAT is checked against the official GitVerse MCP, stored using Eloquent's `encrypted` cast, and linked to a local Laravel user. No email/password registration is required.
-5. Passport displays a consent step using **the same Blade template**, then issues a scoped access token and a rotating refresh token to the AI client.
+3. Laravel shows a dedicated Inertia + Nuxt UI page asking for the user's GitVerse PAT and displays the real OAuth callback domain.
+4. The PAT is checked through the official GitVerse REST API, stored using Eloquent's `encrypted` cast, and linked to a local Laravel user. No email/password registration is required.
+5. Passport displays a separate Inertia consent page, then issues a scoped access token and a rotating refresh token to the AI client.
 6. The gateway verifies the Passport token, identifies the Laravel user, loads **that user's credential**, and streams the MCP request/response to GitVerse.
 
 The AI client never receives the actual GitVerse PAT. Each user's Passport tokens are scoped to their Laravel user and personal GitVerse credentials.
@@ -49,7 +49,7 @@ This destroys all data, including connected accounts and GitVerse PATs. Any clou
 - The login is one-time and tied to the pending OAuth authorization URL. OAuth approval logs out the browser session, preventing an unrelated next authorization from inheriting the previous user.
 - GitVerse PATs are encrypted at rest with the Laravel application key. Use least-privilege PATs; guard the app key and OAuth signing keys.
 - `php artisan gitverse:mcp-revoke` invalidates all Passport tokens and deletes the stored PATs. `php artisan gitverse:mcp-prune` uses Passport's native purge operation.
-- Web screens use Inertia + Vue 3 + Nuxt UI. OAuth consent and PAT entry submit ordinary HTML POST forms to preserve Passport's external redirects and session protection.
+- Web screens use Inertia + Vue 3 + Nuxt UI. PAT entry and consent use separate Inertia pages with `UForm` and `useForm`; external OAuth redirects use `Inertia::location`.
 - **CIMD (Client ID Metadata Documents) is not implemented**; DCR is supported. Clients requiring CIMD-only registration won't connect without additional work.
 - **Production warning:** This is an unverified security-sensitive migration. Test the full OAuth browser round trip, token exchange, token refresh and SSE with a real cloud client on HTTPS before exposing it to the public.
 

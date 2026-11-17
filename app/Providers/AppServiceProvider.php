@@ -37,7 +37,6 @@ class AppServiceProvider extends ServiceProvider
         Passport::tokensExpireIn(now()->addHour());
         Passport::refreshTokensExpireIn(now()->addDays(30));
         Passport::authorizationView(static fn(array $parameters): Response => inertia('Consent', [
-            'mode' => 'consent',
             'clientName' => (string) $parameters['client']->name,
             'callbackHost' => (string) parse_url($parameters['request']->query('redirect_uri'), PHP_URL_HOST),
             'authToken' => $parameters['authToken'],

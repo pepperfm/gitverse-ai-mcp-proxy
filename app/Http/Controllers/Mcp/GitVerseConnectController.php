@@ -26,7 +26,6 @@ final class GitVerseConnectController
         }
 
         return inertia('Connect', [
-            'mode' => 'token',
             'clientName' => $client->name,
             'callbackHost' => parse_url($query['redirect_uri'], PHP_URL_HOST),
         ]);
