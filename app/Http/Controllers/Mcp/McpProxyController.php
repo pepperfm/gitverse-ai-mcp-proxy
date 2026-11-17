@@ -152,6 +152,16 @@ final class McpProxyController
             return response()->json(['error' => 'GitVerse returned an incomplete MCP response'], 502);
         }
 
+        if (is_array($message) && ($message['method'] ?? null) === 'initialize') {
+            $response = json_decode($json, true);
+
+            if (is_array($response['result']['serverInfo'] ?? null)) {
+                $response['result']['serverInfo']['websiteUrl'] = OAuthMetadataController::base();
+
+                $json = json_encode($response, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+        }
+
         if (
             is_array($message)
             && ($message['method'] ?? null) === 'tools/list'

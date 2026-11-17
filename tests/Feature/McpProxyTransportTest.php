@@ -67,7 +67,10 @@ it('finishes initialize as JSON and preserves the upstream session header', func
     $response->assertOk()
         ->assertHeader('Content-Type', 'application/json')
         ->assertHeader('Mcp-Session-Id', 'upstream-session')
-        ->assertJsonPath('result.protocolVersion', '2025-11-25');
+        ->assertJsonPath('result.protocolVersion', '2025-11-25')
+        ->assertJsonPath('result.serverInfo.name', 'GitVerse')
+        ->assertJsonPath('result.serverInfo.version', '1')
+        ->assertJsonPath('result.serverInfo.websiteUrl', 'https://proxy.example.test');
 
     Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer personal-gitverse-token'));
 });
