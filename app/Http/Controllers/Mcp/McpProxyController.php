@@ -34,6 +34,15 @@ final class McpProxyController
             );
         }
 
+        // Standalone GET/SSE subscriptions are optional in MCP Streamable HTTP.
+        // Forwarding one to GitVerse can occupy the only PHP development-server
+        // worker indefinitely, preventing subsequent tools/list POST requests.
+        // Ordinary JSON-RPC POST requests (including tools/list and tools/call)
+        // remain available and carry their own responses.
+        if ($request->isMethod('get')) {
+            return response('', 405)->header('Allow', 'POST, DELETE');
+        }
+
         $body = $request->getContent();
         if (strlen($body) > 2 * 1024 * 1024) {
             return response('MCP request too large', 413);
