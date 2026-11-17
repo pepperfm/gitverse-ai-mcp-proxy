@@ -1,0 +1,25 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+:root {
+    color-scheme: dark;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+html,
+body {
+    min-height: 100%;
+    background-color: #080c17;
+}
+
+::selection {
+    background: #0ea5e9;
+    color: white;
+}
+
+.gateway-background {
+    background:
+        radial-gradient(ellipse 48% 45% at 50% 28%, rgba(12, 119, 164, .19), transparent 100%),
+        radial-gradient(ellipse 40% 40% at 85% 95%, rgba(30, 64, 175, .10), transparent 100%),
+        #080c17;
+}

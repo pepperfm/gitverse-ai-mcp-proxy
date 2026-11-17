@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Mcp;
 
-use Illuminate\Contracts\View\View;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,10 +12,12 @@ use Illuminate\Support\Facades\Http;
 use Laravel\Passport\ClientRepository;
 use App\Models\GitVerseCredential;
 use App\Models\User;
+use Inertia\Inertia;
+use Inertia\Response;
 
 final class GitVerseConnectController
 {
-    public function create(Request $request, ClientRepository $clients): View
+    public function create(Request $request, ClientRepository $clients): Response
     {
         $query = $this->oauthQuery($request);
         $client = $clients->find((string) ($query['client_id'] ?? ''));
@@ -25,7 +26,9 @@ final class GitVerseConnectController
             abort(403, 'The pending OAuth client is invalid.');
         }
 
-        return view('gitverse-connect', [
+        return Inertia::render('Connect', [
+            'mode' => 'token',
+            'csrfToken' => csrf_token(),
             'clientName' => $client->name,
             'callbackHost' => parse_url($query['redirect_uri'], PHP_URL_HOST),
         ]);

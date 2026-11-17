@@ -216,11 +216,16 @@ it('completes the real Passport authorization code + PKCE flow', function (): vo
     expect($actualQuery)->toBe($expectedQuery);
 
     $consent = $this->get($oauthUrl)->assertOk();
-    preg_match('/name="auth_token" value="([^"]+)"/', $consent->getContent(), $matches);
+    preg_match('/data-page="([^"]+)"/', $consent->getContent(), $matches);
     expect($matches)->toHaveCount(2);
 
+    $page = json_decode(html_entity_decode($matches[1], ENT_QUOTES), true);
+    expect($page['component'])->toBe('Connect')
+        ->and($page['props']['mode'])->toBe('consent')
+        ->and($page['props']['authToken'])->toBeString();
+
     $approved = $this->post('https://proxy.example.test/oauth/authorize', [
-        'auth_token' => $matches[1],
+        'auth_token' => $page['props']['authToken'],
     ])->assertRedirect();
 
     $location = (string) $approved->headers->get('Location');

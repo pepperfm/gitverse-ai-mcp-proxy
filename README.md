@@ -2,7 +2,7 @@
 
 A Laravel 13 / PHP 8.5 gateway that lets **cloud AI clients** connect to GitVerse's official remote MCP with each user's own GitVerse Personal Access Token (PAT).
 
-The gateway uses **Laravel Passport 13** for OAuth2 (authorization codes, PKCE, tokens, refresh, client storage) and **Eloquent** for users and encrypted GitVerse credentials. Only the small MCP-specific discovery/DCR adapter and HTTP/SSE forwarding are project code.
+The UI is a minimal Laravel Inertia + Vue 3 + Nuxt UI site: a one-screen homepage and an OAuth connection/consent form. The gateway uses **Laravel Passport 13** for OAuth2 (authorization codes, PKCE, tokens, refresh, client storage) and **Eloquent** for users and encrypted GitVerse credentials.
 
 ## Connection flow
 
@@ -49,7 +49,7 @@ This destroys all data, including connected accounts and GitVerse PATs. Any clou
 - The login is one-time and tied to the pending OAuth authorization URL. OAuth approval logs out the browser session, preventing an unrelated next authorization from inheriting the previous user.
 - GitVerse PATs are encrypted at rest with the Laravel application key. Use least-privilege PATs; guard the app key and OAuth signing keys.
 - `php artisan gitverse:mcp-revoke` invalidates all Passport tokens and deletes the stored PATs. `php artisan gitverse:mcp-prune` uses Passport's native purge operation.
-- The only web interface is `resources/views/gitverse-connect.blade.php`, reused for PAT entry and consent. No Livewire or Nuxt UI bundle is necessary.
+- Web screens use Inertia + Vue 3 + Nuxt UI. OAuth consent and PAT entry submit ordinary HTML POST forms to preserve Passport's external redirects and session protection.
 - **CIMD (Client ID Metadata Documents) is not implemented**; DCR is supported. Clients requiring CIMD-only registration won't connect without additional work.
 - **Production warning:** This is an unverified security-sensitive migration. Test the full OAuth browser round trip, token exchange, token refresh and SSE with a real cloud client on HTTPS before exposing it to the public.
 
@@ -62,7 +62,7 @@ This destroys all data, including connected accounts and GitVerse PATs. Any clou
 - `GET, POST /oauth/authorize` (Passport with gateway verification/consent)
 - `POST /oauth/token` (Passport)
 - `GET, POST /connect` (PAT login/verification)
-- `GET, POST, DELETE /mcp` (Streamable HTTP proxy)
+- `POST, DELETE /mcp` (Streamable HTTP proxy; GET returns 405)
 
 ## Tests
 
