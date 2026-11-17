@@ -10,10 +10,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Passport\ClientRepository;
+use Inertia\Response;
 use App\Models\GitVerseCredential;
 use App\Models\User;
-use Inertia\Inertia;
-use Inertia\Response;
 
 final class GitVerseConnectController
 {
@@ -26,7 +25,7 @@ final class GitVerseConnectController
             abort(403, 'The pending OAuth client is invalid.');
         }
 
-        return Inertia::render('Connect', [
+        return inertia('Connect', [
             'mode' => 'token',
             'clientName' => $client->name,
             'callbackHost' => parse_url($query['redirect_uri'], PHP_URL_HOST),

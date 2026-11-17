@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Mcp;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Inertia\Inertia;
 use Laravel\Passport\Contracts\AuthorizationViewResponse;
 use Laravel\Passport\Http\Controllers\AccessTokenController;
 use Laravel\Passport\Http\Controllers\ApproveAuthorizationController;
@@ -54,7 +53,7 @@ final class PassportAuthorizationController
         $request->session()->regenerateToken();
 
         if ($request->header('X-Inertia') && $response->isRedirection()) {
-            return Inertia::location((string) $response->headers->get('Location'));
+            return inertia()->location((string) $response->headers->get('Location'));
         }
 
         return $response;

@@ -11,7 +11,6 @@ use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Passport\Passport;
-use Inertia\Inertia;
 use Inertia\Response;
 
 class AppServiceProvider extends ServiceProvider
@@ -37,7 +36,7 @@ class AppServiceProvider extends ServiceProvider
         Passport::tokensCan(['gitverse:access' => 'Access your GitVerse repositories']);
         Passport::tokensExpireIn(now()->addHour());
         Passport::refreshTokensExpireIn(now()->addDays(30));
-        Passport::authorizationView(static fn (array $parameters): Response => Inertia::render('Connect', [
+        Passport::authorizationView(static fn(array $parameters): Response => inertia('Connect', [
             'mode' => 'consent',
             'clientName' => (string) $parameters['client']->name,
             'callbackHost' => (string) parse_url($parameters['request']->query('redirect_uri'), PHP_URL_HOST),

@@ -2,7 +2,7 @@
 import { Head } from '@inertiajs/vue3';
 
 const pluginUrl = 'https://chatgpt.com/plugins/plugin_asdk_app_6afcb3637fa88191b018188ee764fc8c?directoryTab=personal';
-const repositoryUrl = 'https://github.com/pepperfm/gitverse-ai-mcp-proxy';
+const repositoryUrl = 'https://gitverse.ru/pepper_fm/gitverse-ai-mcp-proxy';
 </script>
 
 <template>
@@ -34,7 +34,7 @@ const repositoryUrl = 'https://github.com/pepperfm/gitverse-ai-mcp-proxy';
 
                 <h1 class="max-w-3xl text-[clamp(2.3rem,7.2vw,5.75rem)] leading-[1.06] font-semibold tracking-[-0.06em]">
                     GitVerse.<br />
-                    <span class="bg-gradient-to-r from-sky-300 via-cyan-300 to-blue-400 bg-clip-text text-transparent">Прямо в ChatGPT.</span>
+                    <span class="bg-linear-to-r from-sky-300 via-cyan-300 to-blue-400 bg-clip-text text-transparent">Прямо в ChatGPT.</span>
                 </h1>
 
                 <p class="mt-5 max-w-xl text-sm leading-relaxed text-slate-400 sm:mt-7 sm:text-lg">
