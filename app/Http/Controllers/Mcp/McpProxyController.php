@@ -57,7 +57,7 @@ final class McpProxyController
                 'connect_timeout' => 10,
                 // GET is a long-lived MCP event stream; POST must finish promptly.
                 'timeout' => $request->isMethod('get') ? 0 : 30,
-                'read_timeout' => 15,
+                'read_timeout' => $request->isMethod('get') ? 0 : 15,
             ])->send(
                 $request->method(),
                 (string) config('gitverse.endpoint'),
