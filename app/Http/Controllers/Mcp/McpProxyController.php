@@ -48,6 +48,27 @@ final class McpProxyController
             return response('MCP request too large', 413);
         }
 
+        $message = $request->isMethod('post') ? json_decode($body, true) : null;
+
+        if (
+            is_array($message)
+            && ($message['method'] ?? null) === 'tools/call'
+            && is_array($message['params'] ?? null)
+            && ($message['params']['name'] ?? null) === ListUserRepositoriesTool::NAME
+            && array_key_exists('id', $message)
+        ) {
+            $result = (new ListUserRepositoriesTool)->execute(
+                $message['params']['arguments'] ?? [],
+                $credential->encrypted_token,
+            );
+
+            return response()->json([
+                'jsonrpc' => '2.0',
+                'id' => $message['id'],
+                'result' => $result,
+            ])->header('Cache-Control', 'no-store');
+        }
+
         $headers = [
             'Authorization' => 'Bearer ' . $credential->encrypted_token,
             'Accept' => $request->header('Accept', 'application/json, text/event-stream'),
@@ -95,7 +116,6 @@ final class McpProxyController
             }
         }
 
-        $message = $request->isMethod('post') ? json_decode($body, true) : null;
         $isNotification = is_array($message) && !array_key_exists('id', $message);
 
         if ($request->isMethod('delete') || $upstream->status() === 202 || ($isNotification && $upstream->successful())) {
@@ -130,6 +150,14 @@ final class McpProxyController
 
         if ($json === null) {
             return response()->json(['error' => 'GitVerse returned an incomplete MCP response'], 502);
+        }
+
+        if (
+            is_array($message)
+            && ($message['method'] ?? null) === 'tools/list'
+            && !isset($message['params']['cursor'])
+        ) {
+            $json = ListUserRepositoriesTool::appendToToolsList($json);
         }
 
         return response($json, $upstream->status(), [
