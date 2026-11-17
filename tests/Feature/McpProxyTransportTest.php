@@ -96,7 +96,7 @@ it('proxies individual tools/call requests with the users own PAT', function ():
     ])->assertOk()->assertJsonPath('result.content.0.type', 'text');
 
     Http::assertSent(function ($request): bool {
-        $payload = $request->data();
+        $payload = json_decode($request->body(), true);
 
         return $request->hasHeader('Authorization', 'Bearer personal-gitverse-token')
             && ($payload['method'] ?? null) === 'tools/call'
