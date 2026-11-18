@@ -9,14 +9,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Passport\ClientRepository;
-use Inertia\Response as InertiaResponse;
 use Symfony\Component\HttpFoundation\Response;
 use App\Models\GitVerseCredential;
 use App\Models\User;
 
 final class GitVerseConnectController
 {
-    public function create(Request $request, ClientRepository $clients): InertiaResponse
+    public function create(Request $request, ClientRepository $clients): \Inertia\Response
     {
         $query = $this->oauthQuery($request);
         $client = $clients->find((string) ($query['client_id'] ?? ''));
