@@ -1,18 +1,18 @@
 <script setup>
 import { Head } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { useToast } from '@nuxt/ui/composables';
 
 const pluginUrl = 'https://chatgpt.com/plugins/plugin_asdk_app_6afcdb45a3ac8191840314e21d1f016e?directoryTab=personal';
 const mcpUrl = 'https://gitverse-gateway-mcp.pepperfm.com/mcp';
 const repositoryUrl = 'https://gitverse.ru/pepper_fm/gitverse-ai-mcp-proxy';
-const copied = ref(false);
+const toast = useToast();
 
 async function copyMcpUrl() {
     try {
         await navigator.clipboard.writeText(mcpUrl);
-        copied.value = true;
+        toast.add({ title: 'Адрес скопирован', color: 'success', duration: 1500 });
     } catch {
-        copied.value = false;
+        toast.add({ title: 'Не удалось скопировать адрес', color: 'error', duration: 1500 });
     }
 }
 </script>
@@ -20,7 +20,7 @@ async function copyMcpUrl() {
 <template>
     <UApp>
         <Head title="GitVerse в ChatGPT">
-            <meta name="description" content="GitVerse MCP Gateway: независимый OAuth-прокси между ChatGPT и официальным MCP-сервером GitVerse. Открытый исходный код." />
+            <meta name="description" content="GitVerse MCP Gateway: независимый прокси для подключения GitVerse к ChatGPT по персональному токену. Открытый исходный код." />
         </Head>
 
         <main class="gateway-background min-h-dvh overflow-x-hidden text-white">
@@ -64,7 +64,7 @@ async function copyMcpUrl() {
                         </UButton>
                     </div>
                     <p class="mt-4 text-xs leading-relaxed text-slate-500">
-                        Плагин пока личный. Для других пользователей доступно подключение по MCP URL ниже, если их тариф поддерживает собственные MCP.
+                        Плагин пока личный. Остальные могут подключить MCP по адресу ниже, если их тариф поддерживает собственные подключения.
                     </p>
                 </section>
 
@@ -84,7 +84,8 @@ async function copyMcpUrl() {
                         </h2>
                         <p class="mt-5 text-sm leading-relaxed text-slate-400 sm:text-base">
                             У GitVerse уже есть официальный MCP-сервер. Gateway не заменяет его и не переписывает API.
-                            Он добавляет OAuth-авторизацию для ChatGPT и передаёт запросы существующему MCP от имени пользователя.
+                            Пользователь вводит персональный токен GitVerse (PAT), а Gateway передаёт запросы к существующему MCP от его имени.
+                            ChatGPT подключается к самому Gateway через OAuth, не к GitVerse напрямую.
                         </p>
                     </div>
 
@@ -95,7 +96,7 @@ async function copyMcpUrl() {
                         <div class="flex min-w-max items-center gap-3 font-mono text-xs sm:gap-5 sm:text-sm">
                             <span class="text-slate-200">ChatGPT</span>
                             <span class="text-slate-600" aria-hidden="true">→</span>
-                            <span class="text-sky-300">Gateway <span class="text-slate-500">(OAuth)</span></span>
+                            <span class="text-sky-300">Gateway</span>
                             <span class="text-slate-600" aria-hidden="true">→</span>
                             <span class="text-slate-200">GitVerse MCP</span>
                         </div>
@@ -103,10 +104,10 @@ async function copyMcpUrl() {
 
                     <div class="mt-4 grid gap-4 md:grid-cols-3">
                         <div class="rounded-2xl border border-slate-800/80 bg-slate-900/35 p-5">
-                            <p class="font-mono text-xs text-sky-400">01 / OAuth</p>
-                            <h3 class="mt-3 font-semibold">Авторизация через Passport</h3>
+                            <p class="font-mono text-xs text-sky-400">01 / PAT</p>
+                            <h3 class="mt-3 font-semibold">Ваш токен GitVerse</h3>
                             <p class="mt-2 text-sm leading-relaxed text-slate-400">
-                                ChatGPT получает OAuth-токен Gateway, а не ваш персональный токен GitVerse.
+                                Вставьте свой PAT на странице Gateway. ChatGPT получает отдельный доступ к шлюзу, но не сам PAT.
                             </p>
                         </div>
                         <div class="rounded-2xl border border-slate-800/80 bg-slate-900/35 p-5">
@@ -120,7 +121,7 @@ async function copyMcpUrl() {
                             <p class="font-mono text-xs text-sky-400">03 / REST</p>
                             <h3 class="mt-3 font-semibold">Одно дополнение</h3>
                             <p class="mt-2 text-sm leading-relaxed text-slate-400">
-                                Read-only инструмент <code class="break-all text-slate-300">list_user_repositories</code> для списка ваших репозиториев.
+                                Дополнительный инструмент <code class="break-all text-slate-300">list_user_repositories</code> для чтения списка ваших репозиториев.
                             </p>
                         </div>
                     </div>
@@ -130,11 +131,11 @@ async function copyMcpUrl() {
                             <div class="min-w-0">
                                 <h3 class="font-semibold">Подключить свой MCP-сервер</h3>
                                 <p class="mt-1 text-sm text-slate-400">
-                                    Укажите этот адрес при добавлении пользовательского MCP в ChatGPT и выберите OAuth.
+                                    Укажите этот адрес при добавлении пользовательского MCP в ChatGPT. На странице Gateway потребуется PAT GitVerse.
                                 </p>
                             </div>
                             <UButton color="neutral" variant="outline" size="md" class="shrink-0 justify-center" @click="copyMcpUrl">
-                                {{ copied ? 'Скопировано' : 'Копировать URL' }}
+                                Копировать URL
                             </UButton>
                         </div>
                         <code class="mt-5 block break-all rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3 font-mono text-xs text-sky-200 sm:text-sm">{{ mcpUrl }}</code>
