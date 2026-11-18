@@ -2,6 +2,7 @@
 import { Head } from '@inertiajs/vue3';
 import { ref } from 'vue';
 
+const pluginUrl = 'https://chatgpt.com/plugins/plugin_asdk_app_6afcdb45a3ac8191840314e21d1f016e?directoryTab=personal';
 const mcpUrl = 'https://gitverse-gateway-mcp.pepperfm.com/mcp';
 const repositoryUrl = 'https://gitverse.ru/pepper_fm/gitverse-ai-mcp-proxy';
 const copied = ref(false);
@@ -55,13 +56,16 @@ async function copyMcpUrl() {
                     </p>
 
                     <div class="mt-7 flex w-full flex-col justify-center gap-3 sm:mt-9 sm:w-auto sm:flex-row">
-                        <UButton href="#mcp" size="xl" class="justify-center rounded-xl px-6 font-semibold">
+                        <UButton :href="pluginUrl" target="_blank" rel="noopener noreferrer" size="xl" class="justify-center rounded-xl px-6 font-semibold">
+                            Открыть в ChatGPT <span class="ml-1" aria-hidden="true">↗</span>
+                        </UButton>
+                        <UButton href="#mcp" color="neutral" variant="outline" size="xl" class="justify-center rounded-xl px-6">
                             Подключить MCP
                         </UButton>
-                        <UButton :href="repositoryUrl" target="_blank" rel="noopener noreferrer" color="neutral" variant="outline" size="xl" class="justify-center rounded-xl px-6">
-                            Посмотреть код
-                        </UButton>
                     </div>
+                    <p class="mt-4 text-xs leading-relaxed text-slate-500">
+                        Плагин пока личный. Для других пользователей доступно подключение по MCP URL ниже, если их тариф поддерживает собственные MCP.
+                    </p>
                 </section>
 
                 <footer class="relative px-5 pb-4 text-center text-[11px] text-slate-500 sm:pb-7 sm:text-xs">
